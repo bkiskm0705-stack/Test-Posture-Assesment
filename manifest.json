@@ -1,0 +1,24 @@
+{
+  "name": "Aequum",
+  "short_name": "Aequum",
+  "description": "プロフェッショナル向け姿勢評価アプリケーション",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0D0D1A",
+  "background_color": "#0D0D1A",
+  "categories": ["medical", "health", "fitness"],
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
