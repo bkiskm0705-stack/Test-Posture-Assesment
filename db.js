@@ -105,6 +105,7 @@ const AequumDB = (() => {
   async function createClient(data) {
     const client = {
       id: generateId(),
+      patientNo: data.patientNo.trim(),
       name: data.name.trim(),
       dateOfBirth: data.dateOfBirth || '',
       gender: data.gender || '',
@@ -116,6 +117,11 @@ const AequumDB = (() => {
     };
     await _put('clients', client);
     return client;
+  }
+
+  async function findClientByPatientNo(patientNo) {
+    const all = await _getAll('clients');
+    return all.find(c => c.patientNo && c.patientNo === patientNo.trim()) || null;
   }
 
   async function updateClient(id, data) {
@@ -154,6 +160,7 @@ const AequumDB = (() => {
     const q = query.toLowerCase();
     return all.filter(c =>
       c.name.toLowerCase().includes(q) ||
+      (c.patientNo || '').toLowerCase().includes(q) ||
       (c.chiefComplaint || '').toLowerCase().includes(q)
     );
   }
@@ -206,6 +213,24 @@ const AequumDB = (() => {
     return _delete('sessions', id);
   }
 
+  async function clearAllData() {
+    await Promise.all([
+      _clear('clients'),
+      _clear('sessions'),
+      _clear('images')
+    ]);
+  }
+
+  function _clear(storeName) {
+    return new Promise((resolve, reject) => {
+      const transaction = _db.transaction([storeName], 'readwrite');
+      const store = transaction.objectStore(storeName);
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = (e) => reject(e.target.error);
+    });
+  }
+
   // ── Image Operations (binary blob storage) ───────────
   async function saveImage(blob) {
     const id = generateId();
@@ -233,12 +258,14 @@ const AequumDB = (() => {
     getAllClients,
     deleteClient,
     searchClients,
+    findClientByPatientNo,
     // Sessions
     createSession,
     updateSession,
     getSession,
     getSessionsByClient,
     deleteSession,
+    clearAllData,
     // Images
     saveImage,
     getImage,

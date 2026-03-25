@@ -9,14 +9,11 @@ const AequumAnalysis = (() => {
   // ── Landmark Definitions ─────────────────────────────
   // Sagittal plane (lateral view) landmarks
   const LANDMARKS = [
-    { id: 'lateral_malleolus', name: '外果', nameEn: 'Lateral Malleolus', color: '#FF6B6B', isReference: true, order: 0 },
-    { id: 'knee_joint',        name: '膝関節中心', nameEn: 'Knee Joint', color: '#FF9F43', isReference: false, order: 1 },
-    { id: 'greater_trochanter', name: '大転子', nameEn: 'Greater Trochanter', color: '#FFD93D', isReference: false, order: 2 },
-    { id: 'iliac_crest',       name: '腸骨稜', nameEn: 'Iliac Crest', color: '#FECA57', isReference: false, order: 3 },
-    { id: 'acromion',          name: '肩峰', nameEn: 'Acromion', color: '#00D9A6', isReference: false, order: 4 },
-    { id: 'c7_spinous',        name: 'C7棘突起', nameEn: 'C7 Spinous Process', color: '#4DA6FF', isReference: false, order: 5 },
-    { id: 'ear_tragus',        name: '耳珠', nameEn: 'Ear Tragus', color: '#6C63FF', isReference: false, order: 6 },
-    { id: 'head_vertex',       name: '頭頂', nameEn: 'Head Vertex', color: '#A855F7', isReference: false, order: 7 },
+    { id: 'ankle_forward',      name: '外果前方', nameEn: 'Ankle Anterior', color: '#EF4444', isReference: true, order: 0 },
+    { id: 'knee_forward',       name: '膝関節', nameEn: 'Knee Anterior', color: '#F59E0B', isReference: false, order: 1 },
+    { id: 'greater_trochanter', name: '大転子', nameEn: 'Greater Trochanter', color: '#FCD34D', isReference: false, order: 2 },
+    { id: 'acromion',          name: '肩峰', nameEn: 'Acromion', color: '#00C9A7', isReference: false, order: 3 },
+    { id: 'earlobe',           name: '耳垂', nameEn: 'Earlobe', color: '#2C7BE5', isReference: false, order: 4 },
   ];
 
   // Deviation thresholds (cm)
@@ -32,12 +29,10 @@ const AequumAnalysis = (() => {
 
   /**
    * Calculate plumb line X position from landmarks.
-   * Reference point: lateral malleolus x-coordinate
-   * @param {Array} landmarks - Array of {id, x, y} placed landmarks
-   * @returns {number|null} X coordinate of plumb line, or null if reference not found
+   * Reference point: ankle_forward
    */
   function getPlumbLineX(landmarks) {
-    const ref = landmarks.find(l => l.id === 'lateral_malleolus');
+    const ref = landmarks.find(l => l.id === 'ankle_forward');
     return ref ? ref.x : null;
   }
 
@@ -51,13 +46,14 @@ const AequumAnalysis = (() => {
   function calculateScaleFactor(heightCm, landmarks) {
     if (!heightCm) return null;
 
-    const malleolus = landmarks.find(l => l.id === 'lateral_malleolus');
-    const vertex = landmarks.find(l => l.id === 'head_vertex');
+    const ankle = landmarks.find(l => l.id === 'ankle_forward');
+    const earlobe = landmarks.find(l => l.id === 'earlobe');
 
-    if (!malleolus || !vertex) return null;
+    if (!ankle || !earlobe) return null;
 
-    // Height in pixels = distance from malleolus to vertex
-    const heightPx = Math.abs(malleolus.y - vertex.y);
+    // We no longer have head_vertex, so we estimate full height using earlobe to ankle
+    // Earlobe to ankle is roughly 90% of total height
+    const heightPx = Math.abs(ankle.y - earlobe.y) / 0.90;
     if (heightPx === 0) return null;
 
     return heightCm / heightPx;
@@ -75,7 +71,7 @@ const AequumAnalysis = (() => {
     if (plumbX === null) return [];
 
     return landmarks
-      .filter(l => l.id !== 'lateral_malleolus') // Reference point has 0 deviation
+      .filter(l => l.id !== 'ankle_forward') // Reference point has 0 deviation
       .map(l => {
         const deviationPx = l.x - plumbX;
         const deviationCm = scaleFactor ? deviationPx * scaleFactor : null;
@@ -312,7 +308,7 @@ const AequumAnalysis = (() => {
     const { padding = 40, lineColor = '#6C63FF', pointColor = '#00D9A6' } = options;
 
     if (!data || data.length === 0) {
-      ctx.fillStyle = '#A0A0C0';
+      ctx.fillStyle = '#94A3B8';
       ctx.font = '14px Inter, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('データがありません', width / 2, height / 2);
@@ -336,7 +332,7 @@ const AequumAnalysis = (() => {
     const yRange = maxVal * 1.2;
 
     // Axes
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)';
     ctx.lineWidth = 1;
 
     // Y axis
@@ -348,7 +344,7 @@ const AequumAnalysis = (() => {
     // X axis (zero line)
     const zeroY = chartTop + chartHeight / 2;
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)';
     ctx.beginPath();
     ctx.moveTo(chartLeft, zeroY);
     ctx.lineTo(chartRight, zeroY);
@@ -377,7 +373,7 @@ const AequumAnalysis = (() => {
     data.forEach((d, i) => {
       const x = chartLeft + (i / Math.max(data.length - 1, 1)) * chartWidth;
       const dateStr = new Date(d.date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' });
-      ctx.fillStyle = '#6A6A8E';
+      ctx.fillStyle = '#94A3B8';
       ctx.font = '9px Inter, sans-serif';
       ctx.fillText(dateStr, x, chartBottom + 16);
     });
@@ -430,7 +426,7 @@ const AequumAnalysis = (() => {
       ctx.arc(x, y, 5, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
-      ctx.strokeStyle = '#0D0D1A';
+      ctx.strokeStyle = '#F0F2F5';
       ctx.lineWidth = 2;
       ctx.stroke();
     });

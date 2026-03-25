@@ -24,6 +24,7 @@
     showGrid: false,
     showInfoPanel: true,
     scaleFactor: null,
+    drawState: null,
     // Zoom & Pan
     viewZoom: 1,
     viewPanX: 0,
@@ -134,15 +135,35 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.textContent = 'Aequum';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.3</span>';
+        actions.innerHTML = `
+          <button id="btn-settings" class="header-btn" aria-label="設定">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        `;
+        setTimeout(() => {
+          const btnSet = $('btn-settings');
+          if (btnSet) {
+            btnSet.addEventListener('click', async () => {
+              const clients = await AequumDB.getAllClients();
+              const select = $('select-delete-client');
+              select.innerHTML = '<option value="">患者を選択...</option>' + 
+                clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)} (No.${c.patientNo || '-'})</option>`).join('');
+              $('modal-settings').style.display = '';
+            });
+          }
+        }, 0);
         break;
       case 'new-client':
         back.style.display = '';
-        title.textContent = '新規クライアント';
+        title.textContent = '新規患者';
         break;
       case 'client-detail':
         back.style.display = '';
-        title.textContent = 'クライアント詳細';
+        title.textContent = '患者詳細';
         break;
       case 'capture':
         back.style.display = '';
@@ -162,7 +183,7 @@
         break;
       default:
         back.style.display = '';
-        title.textContent = 'Aequum';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.2</span>';
     }
   }
 
@@ -181,6 +202,42 @@
 
   // ── Global Events ───────────────────────────────────
   function bindGlobalEvents() {
+    $('input-patient-no').addEventListener('input', (e) => {
+      e.target.value = e.target.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+    });
+
+    $('btn-show-disclaimer').addEventListener('click', () => {
+      $('modal-settings').style.display = 'none';
+      $('modal-disclaimer').style.display = '';
+    });
+
+    $('btn-delete-client-data').addEventListener('click', async () => {
+      const select = $('select-delete-client');
+      const clientId = select.value;
+      if (!clientId) {
+        showToast('削除する患者を選択してください', 'error');
+        return;
+      }
+      const clientName = select.options[select.selectedIndex].text;
+      
+      if (confirm(`本当に ${clientName} のデータをすべて削除しますか？\\n※この操作は取り消せません。`)) {
+        try {
+          const sessions = await AequumDB.getSessionsByClient(clientId);
+          for (const s of sessions) {
+            await AequumDB.deleteSession(s.id);
+          }
+          await AequumDB.deleteClient(clientId);
+          
+          $('modal-settings').style.display = 'none';
+          showToast(`${clientName} を削除しました`);
+          if (state.currentPage === 'clients') loadClients();
+        } catch (err) {
+          showToast('削除に失敗しました', 'error');
+          console.error(err);
+        }
+      }
+    });
+
     $('btn-back').addEventListener('click', goBack);
     $('fab-add-client').addEventListener('click', () => navigateTo('new-client'));
     $('form-new-client').addEventListener('submit', handleSaveClient);
@@ -270,7 +327,10 @@
   }
 
   async function handleSearch(e) {
-    const query = e.target.value.trim();
+    let query = e.target.value.trim();
+    // Convert full-width numbers to half-width for better search matching on patient numbers
+    query = query.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+
     if (query === '') {
       loadClients();
       return;
@@ -294,6 +354,7 @@
       const initials = c.name.slice(0, 2);
       const lastSession = ''; // will be enhanced
       const meta = [];
+      if (c.patientNo) meta.push(`No.${c.patientNo}`);
       if (c.gender) {
         const genderLabel = c.gender === 'male' ? '男性' : c.gender === 'female' ? '女性' : 'その他';
         meta.push(genderLabel);
@@ -307,7 +368,6 @@
       return `
         <div class="client-card" data-id="${c.id}">
           <div class="client-card-body">
-            <div class="avatar">${initials}</div>
             <div class="client-card-info">
               <div class="card-name">${escapeHtml(c.name)}</div>
               <div class="card-meta">${meta.map(m => `<span>${m}</span>`).join('')}</div>
@@ -338,7 +398,22 @@
 
   async function handleSaveClient(e) {
     e.preventDefault();
+    const patientNo = $('input-patient-no').value.trim();
     const name = $('input-name').value.trim();
+
+    if (!patientNo) {
+      $('input-patient-no').classList.add('invalid');
+      $('input-patient-no').focus();
+      showToast('患者番号を入力してください', 'error');
+      return;
+    }
+
+    if (!/^\d+$/.test(patientNo)) {
+      $('input-patient-no').classList.add('invalid');
+      $('input-patient-no').focus();
+      showToast('患者番号は数字のみで入力してください', 'error');
+      return;
+    }
 
     if (!name) {
       $('input-name').classList.add('invalid');
@@ -346,8 +421,26 @@
       return;
     }
 
+    const heightStr = $('input-height').value.trim();
+    if (!heightStr) {
+      $('input-height').classList.add('invalid');
+      $('input-height').focus();
+      showToast('身長を入力してください', 'error');
+      return;
+    }
+
+    // Check for duplicate patient number
+    const existing = await AequumDB.findClientByPatientNo(patientNo);
+    if (existing) {
+      $('input-patient-no').classList.add('invalid');
+      $('input-patient-no').focus();
+      showToast(`患者番号「${patientNo}」は既に登録されています（${existing.name}）`, 'error');
+      return;
+    }
+
     try {
       const client = await AequumDB.createClient({
+        patientNo,
         name,
         dateOfBirth: $('input-dob').value,
         gender: $('input-gender').value,
@@ -370,7 +463,7 @@
   async function loadClientDetail(clientId) {
     const client = await AequumDB.getClient(clientId);
     if (!client) {
-      showToast('クライアントが見つかりません', 'error');
+      showToast('患者が見つかりません', 'error');
       navigateTo('clients');
       return;
     }
@@ -773,31 +866,35 @@
     const mHip = toCanvas(mps[useLeft ? 23 : 24]);
     const mKnee = toCanvas(mps[useLeft ? 25 : 26]);
     const mAnkle = toCanvas(mps[useLeft ? 27 : 28]);
+    const mToe = toCanvas(mps[useLeft ? 31 : 32]); // foot index (toe)
 
-    const mC7 = {
-      x: mShoulder.x + (mEar.x - mShoulder.x) * 0.1,
-      y: mShoulder.y - (mShoulder.y - mEar.y) * 0.2
-    };
-
-    const mHeadVertex = {
+    // Estimate forward direction using toe
+    const forwardX = Math.sign(mToe.x - mAnkle.x) || 1;
+    // Estimate distances (very roughly) based on limb sizes to guess "5cm"
+    // Earlobe is slightly below the ear center
+    const mEarlobe = {
       x: mEar.x,
-      y: mEar.y - (mShoulder.y - mEar.y) * 0.6
+      y: mEar.y + (mShoulder.y - mEar.y) * 0.1
     };
 
-    const mIliac = {
-      x: mHip.x,
-      y: mHip.y - (mHip.y - mShoulder.y) * 0.15
+    // Knee forward (slightly anterior to joint center, posterior to patella)
+    const mKneeForward = {
+      x: mKnee.x + forwardX * (Math.abs(mToe.x - mAnkle.x) * 0.15),
+      y: mKnee.y
+    };
+
+    // Ankle 5cm forward (rough visual estimate using foot length proportion)
+    const mAnkleForward = {
+      x: mAnkle.x + forwardX * (Math.abs(mToe.x - mAnkle.x) * 0.35),
+      y: mAnkle.y
     };
 
     state.placedLandmarks = [
-      { id: 'lateral_malleolus', name: '外果', x: mAnkle.x, y: mAnkle.y },
-      { id: 'knee_joint', name: '膝関節中心', x: mKnee.x, y: mKnee.y },
+      { id: 'ankle_forward', name: '外果前方', x: mAnkleForward.x, y: mAnkleForward.y },
+      { id: 'knee_forward', name: '膝関節', x: mKneeForward.x, y: mKneeForward.y },
       { id: 'greater_trochanter', name: '大転子', x: mHip.x, y: mHip.y },
-      { id: 'iliac_crest', name: '腸骨稜', x: mIliac.x, y: mIliac.y },
       { id: 'acromion', name: '肩峰', x: mShoulder.x, y: mShoulder.y },
-      { id: 'c7_spinous', name: 'C7棘突起', x: mC7.x, y: mC7.y },
-      { id: 'ear_tragus', name: '耳珠', x: mEar.x, y: mEar.y },
-      { id: 'head_vertex', name: '頭頂', x: mHeadVertex.x, y: mHeadVertex.y }
+      { id: 'earlobe', name: '耳垂', x: mEarlobe.x, y: mEarlobe.y }
     ].map(lm => ({...lm, isAutoDetected: true, isManuallyAdjusted: false}));
 
     recalculateDeviations();
@@ -811,6 +908,19 @@
   async function initAnalyze(data) {
     const canvas = $('analyze-canvas');
     const container = $('analyze-container');
+    
+    // Hide info panel by default
+    state.showInfoPanel = false;
+    $('btn-toggle-info').classList.remove('active');
+    const panel = $('landmark-info-panel');
+    if (panel) panel.style.display = 'none';
+
+    // Disable interactions and hide tools for past records
+    state.isReadOnly = (data.mode === 'view');
+    $('btn-auto-detect').style.display = state.isReadOnly ? 'none' : '';
+    $('btn-toggle-info').style.display = state.isReadOnly ? 'none' : '';
+    $('btn-add-landmark').style.display = state.isReadOnly ? 'none' : '';
+    $('btn-save-analysis').style.display = state.isReadOnly ? 'none' : '';
 
     let imageBlob;
 
@@ -853,11 +963,65 @@
       img.onload = () => {
         state.analyzeImage = img;
 
+        let prevDrawState = null;
+
         // Size canvas to container
         const resizeCanvas = () => {
           const rect = container.getBoundingClientRect();
-          canvas.width = rect.width;
-          canvas.height = rect.height;
+          const newW = rect.width;
+          const newH = rect.height;
+
+          // If we have an image, calculate the contained drawing bounds
+          if (state.analyzeImage) {
+            const scale = Math.min(newW / state.analyzeImage.width, newH / state.analyzeImage.height);
+            const drawW = state.analyzeImage.width * scale;
+            const drawH = state.analyzeImage.height * scale;
+            const drawX = (newW - drawW) / 2;
+            const drawY = (newH - drawH) / 2;
+
+            if (state.placedLandmarks && state.placedLandmarks.length > 0) {
+              state.placedLandmarks.forEach(l => {
+                let nx, ny;
+                if (l.nx !== undefined && l.ny !== undefined) {
+                  // Loaded from DB with normalized coords
+                  nx = l.nx;
+                  ny = l.ny;
+                } else if (prevDrawState) {
+                  // Resizing existing canvas (e.g. tablet rotation)
+                  nx = (l.x - prevDrawState.drawX) / prevDrawState.drawW;
+                  ny = (l.y - prevDrawState.drawY) / prevDrawState.drawH;
+                } else if (!l.isAutoDetected) {
+                  // Legacy session from DB (no nx/ny and no prevDrawState)
+                  // Try to guess the old canvas size (usually max 520px wide)
+                  const oldW = Math.min(document.documentElement.clientWidth, 520);
+                  const oldH = newH; // Assume height hasn't changed much
+                  const oldScale = Math.min(oldW / state.analyzeImage.width, oldH / state.analyzeImage.height);
+                  const oDrawW = state.analyzeImage.width * oldScale;
+                  const oDrawH = state.analyzeImage.height * oldScale;
+                  const oDrawX = (oldW - oDrawW) / 2;
+                  const oDrawY = (oldH - oDrawH) / 2;
+                  nx = (l.x - oDrawX) / oDrawW;
+                  ny = (l.y - oDrawY) / oDrawH;
+                }
+
+                if (nx !== undefined) {
+                  l.x = drawX + nx * drawW;
+                  l.y = drawY + ny * drawH;
+                  l.nx = nx;
+                  l.ny = ny;
+                }
+              });
+              // Also trigger recalculation of deviations if needed
+              if (typeof recalculateDeviations === 'function') {
+                recalculateDeviations();
+              }
+            }
+            state.drawState = { drawX, drawY, drawW, drawH };
+            prevDrawState = state.drawState;
+          }
+
+          canvas.width = newW;
+          canvas.height = newH;
           renderAnalysis();
         };
         resizeCanvas();
@@ -952,7 +1116,7 @@
       const sp = getScreenPos(e);
       const wp = screenToWorld(sp.x, sp.y);
       const target = findNearLandmark(wp);
-      if (target) {
+      if (target && !state.isReadOnly) {
         e.preventDefault();
         dragTarget = target;
         state.selectedLandmark = target.id;
@@ -1015,7 +1179,7 @@
         const wp = screenToWorld(sp.x, sp.y);
         // Use a larger threshold for touch (fingers are imprecise)
         const target = findNearLandmark(wp, 35);
-        if (target) {
+        if (target && !state.isReadOnly) {
           e.preventDefault();
           dragTarget = target;
           state.selectedLandmark = target.id;
@@ -1181,10 +1345,10 @@
       `;
     }).join('');
 
-    // Reference landmark (malleolus)
-    const refLm = state.placedLandmarks.find(l => l.id === 'lateral_malleolus');
+    // Reference landmark
+    const refLm = state.placedLandmarks.find(l => l.id === 'ankle_forward');
     if (refLm) {
-      const refDef = AequumAnalysis.LANDMARKS.find(d => d.id === 'lateral_malleolus');
+      const refDef = AequumAnalysis.LANDMARKS.find(d => d.id === 'ankle_forward');
       list.innerHTML = `
         <div class="landmark-item">
           <span class="landmark-dot" style="background:${refDef.color};"></span>
@@ -1263,11 +1427,21 @@
     recalculateDeviations();
     const deviations = AequumAnalysis.calculateDeviations(state.placedLandmarks, state.scaleFactor);
 
+    // Save normalized coordinates so they adapt seamlessly to any screen size later
+    const landmarksToSave = state.placedLandmarks.map(l => {
+      const result = { ...l };
+      if (state.drawState) {
+        result.nx = (l.x - state.drawState.drawX) / state.drawState.drawW;
+        result.ny = (l.y - state.drawState.drawY) / state.drawState.drawH;
+      }
+      return result;
+    });
+
     try {
       if (state.currentSession && state.currentSession.id) {
         // Update existing session
         await AequumDB.updateSession(state.currentSession.id, {
-          landmarks: state.placedLandmarks,
+          landmarks: landmarksToSave,
           deviations: deviations,
           scaleFactor: state.scaleFactor,
         });
@@ -1276,7 +1450,7 @@
         const session = await AequumDB.createSession({
           clientId: state.currentSession.clientId,
           imageId: state.currentSession.imageId,
-          landmarks: state.placedLandmarks,
+          landmarks: landmarksToSave,
           deviations: deviations,
           scaleFactor: state.scaleFactor,
         });
@@ -1500,7 +1674,7 @@
 
     state.currentSession = session;
     const client = await AequumDB.getClient(session.clientId);
-    if (!client) { showToast('クライアントが見つかりません', 'error'); goBack(); return; }
+    if (!client) { showToast('患者が見つかりません', 'error'); goBack(); return; }
     state.currentClient = client;
 
     const deviations = session.deviations || [];
