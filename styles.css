@@ -187,6 +187,7 @@ input, select, textarea { font-family: inherit; }
 .page {
   display: none;
   flex: 1;
+  min-height: 0;
   padding: var(--space-md);
   padding-bottom: calc(var(--safe-bottom) + var(--space-2xl));
   animation: pageFadeIn var(--transition-base) ease-out;
@@ -700,6 +701,7 @@ input, select, textarea { font-family: inherit; }
   position: relative;
   width: 100%;
   flex: 1;
+  min-height: 0;
   background: #1a1a2e;
   overflow: hidden;
 }
@@ -843,6 +845,7 @@ input, select, textarea { font-family: inherit; }
 
 #analyze-container {
   flex: 1;
+  min-height: 0;
   position: relative;
   background: #F0F2F5;
   overflow: hidden;

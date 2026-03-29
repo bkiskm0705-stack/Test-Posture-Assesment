@@ -176,6 +176,7 @@ const AequumDB = (() => {
       deviations: data.deviations || [],
       notes: data.notes || '',
       scaleFactor: data.scaleFactor || null, // px to cm conversion
+      viewType: data.viewType || 'sagittal', // 'sagittal' or 'posterior'
     };
     await _put('sessions', session);
 

@@ -32,6 +32,10 @@
     // Compare
     compareBeforeSession: null,
     compareAfterSession: null,
+    // Orientation
+    facingDirection: 1, // 1 for right-facing (forward=+X), -1 for left-facing
+    // UI filters
+    timelineFilter: 'all', // 'all', 'sagittal', 'posterior'
   };
 
   // ── DOM Cache ────────────────────────────────────────
@@ -135,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.3</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.4</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -206,9 +210,24 @@
       e.target.value = e.target.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
     });
 
+    // Settings & Disclaimer
     $('btn-show-disclaimer').addEventListener('click', () => {
       $('modal-settings').style.display = 'none';
       $('modal-disclaimer').style.display = '';
+    });
+
+    // Timeline Tabs
+    $$('#timeline-tabs .tab').forEach(tab => {
+      tab.addEventListener('click', async (e) => {
+        $$('#timeline-tabs .tab').forEach(t => t.classList.remove('active'));
+        e.target.classList.add('active');
+        state.timelineFilter = e.target.dataset.filter;
+        
+        if (state.currentClient) {
+          const sessions = await AequumDB.getSessionsByClient(state.currentClient.id);
+          renderSessionTimeline(sessions);
+        }
+      });
     });
 
     $('btn-delete-client-data').addEventListener('click', async () => {
@@ -244,6 +263,21 @@
     $('client-search').addEventListener('input', handleSearch);
     $('btn-new-session').addEventListener('click', () => {
       if (state.currentClient) {
+        $('modal-view-type').style.display = '';
+      }
+    });
+
+    $('btn-mode-sagittal').addEventListener('click', () => {
+      $('modal-view-type').style.display = 'none';
+      if (state.currentClient) {
+        state.viewType = 'sagittal';
+        navigateTo('capture', { clientId: state.currentClient.id });
+      }
+    });
+    $('btn-mode-posterior').addEventListener('click', () => {
+      $('modal-view-type').style.display = 'none';
+      if (state.currentClient) {
+        state.viewType = 'posterior';
         navigateTo('capture', { clientId: state.currentClient.id });
       }
     });
@@ -512,17 +546,29 @@
     const timeline = $('session-timeline');
     const empty = $('session-empty');
 
-    if (sessions.length === 0) {
+    // Filter sessions based on timelineFilter
+    const filteredSessions = sessions.filter(s => {
+      if (state.timelineFilter === 'all') return true;
+      const sViewType = s.viewType || 'sagittal';
+      return sViewType === state.timelineFilter;
+    });
+
+    if (filteredSessions.length === 0) {
       timeline.innerHTML = '';
       empty.style.display = '';
+      empty.innerHTML = sessions.length === 0 
+        ? '<p>まだ評価がありません</p><p class="sub">「新規評価」から初回の撮影を行いましょう</p>'
+        : '<p style="color:var(--text-muted); font-size:0.9rem;">該当する評価がありません</p>';
       return;
     }
 
     empty.style.display = 'none';
-    timeline.innerHTML = sessions.map(s => {
+    timeline.innerHTML = filteredSessions.map(s => {
       const date = new Date(s.capturedAt).toLocaleDateString('ja-JP', {
         year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
       });
+      const viewTypeStr = (s.viewType || 'sagittal') === 'posterior' ? '前額面' : '矢状面';
+      const vtColor = (s.viewType || 'sagittal') === 'posterior' ? '#A78BFA' : '#6C63FF';
 
       const badges = (s.deviations || []).slice(0, 3).map(d => {
         const cls = d.status === 'ok' ? 'badge-ok' : d.status === 'warn' ? 'badge-warn' : 'badge-alert';
@@ -532,7 +578,10 @@
 
       return `
         <div class="session-card" data-session-id="${s.id}">
-          <div class="session-date">${date}</div>
+          <div class="session-date">
+            ${date}
+            <span style="display:inline-block; margin-left:8px; font-size:0.75rem; padding:2px 6px; border-radius:4px; background:${vtColor}15; color:${vtColor};">${viewTypeStr}</span>
+          </div>
           <div class="session-summary">${badges || '<span style="color:var(--text-muted); font-size:0.82rem;">ランドマーク未設定</span>'}</div>
           <div class="session-actions">
             <button class="btn-view-session" data-id="${s.id}">詳細</button>
@@ -861,41 +910,64 @@
     const rightVis = mps[12].visibility + mps[24].visibility + mps[26].visibility;
     const useLeft = leftVis >= rightVis;
 
-    const mEar = toCanvas(mps[useLeft ? 7 : 8]);
-    const mShoulder = toCanvas(mps[useLeft ? 11 : 12]);
-    const mHip = toCanvas(mps[useLeft ? 23 : 24]);
-    const mKnee = toCanvas(mps[useLeft ? 25 : 26]);
-    const mAnkle = toCanvas(mps[useLeft ? 27 : 28]);
-    const mToe = toCanvas(mps[useLeft ? 31 : 32]); // foot index (toe)
+    if (state.viewType === 'posterior') {
+      const getPt = (idx) => toCanvas(mps[idx]);
+      const earLeft = getPt(7);
+      const earRight = getPt(8);
+      const shoulderLeft = getPt(11);
+      const shoulderRight = getPt(12);
+      const hipLeft = getPt(23);
+      const hipRight = getPt(24);
+      const kneeLeft = getPt(25);
+      const kneeRight = getPt(26);
+      const ankleLeft = getPt(27);
+      const ankleRight = getPt(28);
+      const heelLeft = getPt(29);
+      const heelRight = getPt(30);
 
-    // Estimate forward direction using toe
-    const forwardX = Math.sign(mToe.x - mAnkle.x) || 1;
-    // Estimate distances (very roughly) based on limb sizes to guess "5cm"
-    // Earlobe is slightly below the ear center
-    const mEarlobe = {
-      x: mEar.x,
-      y: mEar.y + (mShoulder.y - mEar.y) * 0.1
-    };
+      const baseCenter = {
+        x: (heelLeft.x + heelRight.x) / 2,
+        y: (heelLeft.y + heelRight.y) / 2
+      };
 
-    // Knee forward (slightly anterior to joint center, posterior to patella)
-    const mKneeForward = {
-      x: mKnee.x + forwardX * (Math.abs(mToe.x - mAnkle.x) * 0.15),
-      y: mKnee.y
-    };
+      state.placedLandmarks = [
+        { id: 'base_center', name: '足部中心', x: baseCenter.x, y: baseCenter.y },
+        { id: 'heel_left', name: '左踵', x: heelLeft.x, y: heelLeft.y },
+        { id: 'heel_right', name: '右踵', x: heelRight.x, y: heelRight.y },
+        { id: 'popliteal_left', name: '左膝窩', x: kneeLeft.x, y: kneeLeft.y },
+        { id: 'popliteal_right', name: '右膝窩', x: kneeRight.x, y: kneeRight.y },
+        { id: 'psis_left', name: '左PSIS', x: hipLeft.x, y: hipLeft.y - (hipLeft.y - shoulderLeft.y)*0.1 }, 
+        { id: 'psis_right', name: '右PSIS', x: hipRight.x, y: hipRight.y - (hipRight.y - shoulderRight.y)*0.1 },
+        { id: 'acromion_left', name: '左肩峰', x: shoulderLeft.x, y: shoulderLeft.y },
+        { id: 'acromion_right', name: '右肩峰', x: shoulderRight.x, y: shoulderRight.y },
+        { id: 'earlobe_left', name: '左耳垂', x: earLeft.x, y: earLeft.y + (shoulderLeft.y - earLeft.y)*0.1 },
+        { id: 'earlobe_right', name: '右耳垂', x: earRight.x, y: earRight.y + (shoulderRight.y - earRight.y)*0.1 },
+      ].map(lm => ({...lm, isAutoDetected: true, isManuallyAdjusted: false}));
 
-    // Ankle 5cm forward (rough visual estimate using foot length proportion)
-    const mAnkleForward = {
-      x: mAnkle.x + forwardX * (Math.abs(mToe.x - mAnkle.x) * 0.35),
-      y: mAnkle.y
-    };
-
-    state.placedLandmarks = [
-      { id: 'ankle_forward', name: '外果前方', x: mAnkleForward.x, y: mAnkleForward.y },
-      { id: 'knee_forward', name: '膝関節', x: mKneeForward.x, y: mKneeForward.y },
-      { id: 'greater_trochanter', name: '大転子', x: mHip.x, y: mHip.y },
-      { id: 'acromion', name: '肩峰', x: mShoulder.x, y: mShoulder.y },
-      { id: 'earlobe', name: '耳垂', x: mEarlobe.x, y: mEarlobe.y }
-    ].map(lm => ({...lm, isAutoDetected: true, isManuallyAdjusted: false}));
+    } else {
+      const mEar = toCanvas(mps[useLeft ? 7 : 8]);
+      const mShoulder = toCanvas(mps[useLeft ? 11 : 12]);
+      const mHip = toCanvas(mps[useLeft ? 23 : 24]);
+      const mKnee = toCanvas(mps[useLeft ? 25 : 26]);
+      const mAnkle = toCanvas(mps[useLeft ? 27 : 28]);
+      const mToe = toCanvas(mps[useLeft ? 31 : 32]); // foot index (toe)
+  
+      // Estimate forward direction using toe
+      const forwardX = Math.sign(mToe.x - mAnkle.x) || 1;
+      const mEarlobe = { x: mEar.x, y: mEar.y + (mShoulder.y - mEar.y) * 0.1 };
+      const mKneeForward = { x: mKnee.x + forwardX * (Math.abs(mToe.x - mAnkle.x) * 0.15), y: mKnee.y };
+      const mAnkleForward = { x: mAnkle.x + forwardX * (Math.abs(mToe.x - mAnkle.x) * 0.35), y: mAnkle.y };
+  
+      state.facingDirection = forwardX;
+  
+      state.placedLandmarks = [
+        { id: 'ankle_forward', name: '外果前方', x: mAnkleForward.x, y: mAnkleForward.y },
+        { id: 'knee_forward', name: '膝関節', x: mKneeForward.x, y: mKneeForward.y },
+        { id: 'greater_trochanter', name: '大転子', x: mHip.x, y: mHip.y },
+        { id: 'acromion', name: '肩峰', x: mShoulder.x, y: mShoulder.y },
+        { id: 'earlobe', name: '耳垂', x: mEarlobe.x, y: mEarlobe.y }
+      ].map(lm => ({...lm, isAutoDetected: true, isManuallyAdjusted: false}));
+    }
 
     recalculateDeviations();
     renderAnalysis();
@@ -931,6 +1003,8 @@
       state.currentSession = session;
       state.placedLandmarks = session.landmarks || [];
       state.scaleFactor = session.scaleFactor || null;
+      state.facingDirection = session.facingDirection || 1;
+      state.viewType = session.viewType || 'sagittal';
 
       if (session.imageId) {
         imageBlob = await AequumDB.getImage(session.imageId);
@@ -947,6 +1021,7 @@
       };
       state.placedLandmarks = [];
       state.scaleFactor = null;
+      state.facingDirection = 1;
       state.viewZoom = 1;
       state.viewPanX = 0;
       state.viewPanY = 0;
@@ -954,6 +1029,7 @@
       if (!state.currentClient) {
         state.currentClient = await AequumDB.getClient(data.clientId);
       }
+      // state.viewType is already preserved if navigated from 'capture' mode selector
     }
 
     // Load image
@@ -1284,12 +1360,12 @@
 
     // Draw plumb line
     if (state.showPlumbLine) {
-      const plumbX = AequumAnalysis.getPlumbLineX(state.placedLandmarks);
+      const plumbX = AequumAnalysis.getPlumbLineX(state.placedLandmarks, state.viewType);
       if (plumbX !== null) {
         AequumAnalysis.drawPlumbLine(ctx, plumbX, height);
 
         // Draw deviation lines for each non-reference landmark
-        const deviations = AequumAnalysis.calculateDeviations(state.placedLandmarks, state.scaleFactor);
+        const deviations = AequumAnalysis.calculateDeviations(state.placedLandmarks, state.scaleFactor, state.facingDirection, state.viewType);
         deviations.forEach(dev => {
           const lm = state.placedLandmarks.find(l => l.id === dev.landmarkId);
           if (lm) {
@@ -1301,9 +1377,13 @@
 
     // Draw landmarks
     state.placedLandmarks.forEach(lm => {
+      const isSelected = lm.id === state.selectedLandmark;
+      const scale = state.viewZoom;
       AequumAnalysis.drawLandmark(ctx, lm, {
-        selected: lm.id === state.selectedLandmark,
-        showLabel: true,
+        radius: isSelected ? 8 / scale : 6 / scale,
+        showLabel: state.showOverlayInfo && !state.isDragging,
+        selected: isSelected,
+        viewType: state.viewType
       });
     });
 
@@ -1318,7 +1398,7 @@
     const list = $('landmark-list');
     if (!list) return;
 
-    const deviations = AequumAnalysis.calculateDeviations(state.placedLandmarks, state.scaleFactor);
+    const deviations = AequumAnalysis.calculateDeviations(state.placedLandmarks, state.scaleFactor, state.facingDirection, state.viewType);
 
     if (state.placedLandmarks.length === 0) {
       list.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:16px; font-size:0.82rem;">ツールバーの「追加」からランドマークを配置してください</div>';
@@ -1346,16 +1426,20 @@
     }).join('');
 
     // Reference landmark
-    const refLm = state.placedLandmarks.find(l => l.id === 'ankle_forward');
+    const refId = state.viewType === 'posterior' ? 'base_center' : 'ankle_forward';
+    const refLm = state.placedLandmarks.find(l => l.id === refId);
     if (refLm) {
-      const refDef = AequumAnalysis.LANDMARKS.find(d => d.id === 'ankle_forward');
-      list.innerHTML = `
-        <div class="landmark-item">
-          <span class="landmark-dot" style="background:${refDef.color};"></span>
-          <span class="landmark-name">${refDef.name} (基準点)</span>
-          <span class="landmark-deviation" style="background:rgba(108,99,255,0.15); color:var(--primary-light);">基準</span>
-        </div>
-      ` + list.innerHTML;
+      const defs = AequumAnalysis.getLandmarks(state.viewType);
+      const refDef = defs.find(d => d.id === refId);
+      if (refDef) {
+        list.innerHTML = `
+          <div class="landmark-item">
+            <span class="landmark-dot" style="background:${refDef.color};"></span>
+            <span class="landmark-name">${refDef.name} (基準点)</span>
+            <span class="landmark-deviation" style="background:rgba(108,99,255,0.15); color:var(--primary-light);">基準</span>
+          </div>
+        ` + list.innerHTML;
+      }
     }
   }
 
@@ -1364,7 +1448,8 @@
     if (state.currentClient && state.currentClient.heightCm) {
       state.scaleFactor = AequumAnalysis.calculateScaleFactor(
         state.currentClient.heightCm,
-        state.placedLandmarks
+        state.placedLandmarks,
+        state.viewType
       );
     }
   }
@@ -1375,7 +1460,8 @@
 
     // Show landmarks that haven't been placed yet
     const placedIds = state.placedLandmarks.map(l => l.id);
-    const available = AequumAnalysis.LANDMARKS.filter(l => !placedIds.includes(l.id));
+    const defs = AequumAnalysis.getLandmarks(state.viewType);
+    const available = defs.filter(l => !placedIds.includes(l.id));
 
     if (available.length === 0) {
       showToast('すべてのランドマークが配置済みです');
@@ -1397,7 +1483,7 @@
     picker.querySelectorAll('.landmark-option').forEach(opt => {
       opt.addEventListener('click', () => {
         const id = opt.dataset.id;
-        const def = AequumAnalysis.LANDMARKS.find(d => d.id === id);
+        const def = defs.find(d => d.id === id);
 
         // Place in center of canvas
         const canvas = $('analyze-canvas');
@@ -1425,7 +1511,7 @@
     }
 
     recalculateDeviations();
-    const deviations = AequumAnalysis.calculateDeviations(state.placedLandmarks, state.scaleFactor);
+    const deviations = AequumAnalysis.calculateDeviations(state.placedLandmarks, state.scaleFactor, state.facingDirection, state.viewType);
 
     // Save normalized coordinates so they adapt seamlessly to any screen size later
     const landmarksToSave = state.placedLandmarks.map(l => {
@@ -1444,6 +1530,8 @@
           landmarks: landmarksToSave,
           deviations: deviations,
           scaleFactor: state.scaleFactor,
+          facingDirection: state.facingDirection,
+          viewType: state.viewType,
         });
       } else {
         // Create new session
@@ -1453,6 +1541,8 @@
           landmarks: landmarksToSave,
           deviations: deviations,
           scaleFactor: state.scaleFactor,
+          facingDirection: state.facingDirection,
+          viewType: state.viewType,
         });
         state.currentSession = session;
       }
@@ -1461,6 +1551,9 @@
 
       // Navigate back to client detail
       setTimeout(() => {
+        // 保存後は「戻る」ボタンで患者一覧へ戻るよう履歴をリセット
+        state.navigationStack = [];
+        state.currentPage = 'clients';
         navigateTo('client-detail', { clientId: state.currentSession.clientId });
       }, 500);
     } catch (err) {
@@ -1575,7 +1668,7 @@
         AequumAnalysis.drawPlumbLine(ctx, plumbX, canvas.height, { lineWidth: 1.5 });
       }
       landmarks.forEach(lm => {
-        AequumAnalysis.drawLandmark(ctx, lm, { radius: 5, showLabel: false });
+        AequumAnalysis.drawLandmark(ctx, lm, { radius: 5, showLabel: false, viewType: session.viewType || 'sagittal' });
       });
 
       URL.revokeObjectURL(url);

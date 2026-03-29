@@ -8,13 +8,35 @@ const AequumAnalysis = (() => {
 
   // ── Landmark Definitions ─────────────────────────────
   // Sagittal plane (lateral view) landmarks
-  const LANDMARKS = [
+  const SAGITTAL_LANDMARKS = [
     { id: 'ankle_forward',      name: '外果前方', nameEn: 'Ankle Anterior', color: '#EF4444', isReference: true, order: 0 },
     { id: 'knee_forward',       name: '膝関節', nameEn: 'Knee Anterior', color: '#F59E0B', isReference: false, order: 1 },
     { id: 'greater_trochanter', name: '大転子', nameEn: 'Greater Trochanter', color: '#FCD34D', isReference: false, order: 2 },
     { id: 'acromion',          name: '肩峰', nameEn: 'Acromion', color: '#00C9A7', isReference: false, order: 3 },
     { id: 'earlobe',           name: '耳垂', nameEn: 'Earlobe', color: '#2C7BE5', isReference: false, order: 4 },
   ];
+
+  // Frontal plane (posterior view) landmarks
+  const POSTERIOR_LANDMARKS = [
+    { id: 'base_center',        name: '足部中心', nameEn: 'Base Center', color: '#EF4444', isReference: true, order: 0 },
+    { id: 'heel_left',          name: '左踵', nameEn: 'Left Heel', color: '#A78BFA', isReference: false, order: 1 },
+    { id: 'heel_right',         name: '右踵', nameEn: 'Right Heel', color: '#A78BFA', isReference: false, order: 2 },
+    { id: 'popliteal_left',     name: '左膝窩', nameEn: 'Left Popliteal', color: '#F59E0B', isReference: false, order: 3 },
+    { id: 'popliteal_right',    name: '右膝窩', nameEn: 'Right Popliteal', color: '#F59E0B', isReference: false, order: 4 },
+    { id: 'psis_left',          name: '左PSIS', nameEn: 'Left PSIS', color: '#FCD34D', isReference: false, order: 5 },
+    { id: 'psis_right',         name: '右PSIS', nameEn: 'Right PSIS', color: '#FCD34D', isReference: false, order: 6 },
+    { id: 'acromion_left',      name: '左肩峰', nameEn: 'Left Acromion', color: '#00C9A7', isReference: false, order: 7 },
+    { id: 'acromion_right',     name: '右肩峰', nameEn: 'Right Acromion', color: '#00C9A7', isReference: false, order: 8 },
+    { id: 'earlobe_left',       name: '左耳垂', nameEn: 'Left Earlobe', color: '#2C7BE5', isReference: false, order: 9 },
+    { id: 'earlobe_right',      name: '右耳垂', nameEn: 'Right Earlobe', color: '#2C7BE5', isReference: false, order: 10 },
+  ];
+
+  function getLandmarks(viewType) {
+    return viewType === 'posterior' ? POSTERIOR_LANDMARKS : SAGITTAL_LANDMARKS;
+  }
+
+  // Backward compatibility alias
+  const LANDMARKS = SAGITTAL_LANDMARKS;
 
   // Deviation thresholds (cm)
   const THRESHOLDS = {
@@ -31,9 +53,17 @@ const AequumAnalysis = (() => {
    * Calculate plumb line X position from landmarks.
    * Reference point: ankle_forward
    */
-  function getPlumbLineX(landmarks) {
-    const ref = landmarks.find(l => l.id === 'ankle_forward');
-    return ref ? ref.x : null;
+  function getPlumbLineX(landmarks, viewType = 'sagittal') {
+    if (viewType === 'posterior') {
+      const ref = landmarks.find(l => l.id === 'base_center');
+      if (ref) return ref.x;
+      const left = landmarks.find(l => l.id === 'heel_left');
+      const right = landmarks.find(l => l.id === 'heel_right');
+      return (left && right) ? (left.x + right.x) / 2 : null;
+    } else {
+      const ref = landmarks.find(l => l.id === 'ankle_forward');
+      return ref ? ref.x : null;
+    }
   }
 
   /**
@@ -43,17 +73,26 @@ const AequumAnalysis = (() => {
    * @param {Array} landmarks - Placed landmarks
    * @returns {number|null} cm per pixel ratio, or null if insufficient data
    */
-  function calculateScaleFactor(heightCm, landmarks) {
+  function calculateScaleFactor(heightCm, landmarks, viewType = 'sagittal') {
     if (!heightCm) return null;
 
-    const ankle = landmarks.find(l => l.id === 'ankle_forward');
-    const earlobe = landmarks.find(l => l.id === 'earlobe');
+    let bottomY, topY;
 
-    if (!ankle || !earlobe) return null;
+    if (viewType === 'posterior') {
+      const heels = landmarks.filter(l => l.id === 'heel_left' || l.id === 'heel_right');
+      const earlobes = landmarks.filter(l => l.id === 'earlobe_left' || l.id === 'earlobe_right');
+      if (heels.length === 0 || earlobes.length === 0) return null;
+      bottomY = heels.reduce((acc, l) => acc + l.y, 0) / heels.length;
+      topY = earlobes.reduce((acc, l) => acc + l.y, 0) / earlobes.length;
+    } else {
+      const ankle = landmarks.find(l => l.id === 'ankle_forward');
+      const earlobe = landmarks.find(l => l.id === 'earlobe');
+      if (!ankle || !earlobe) return null;
+      bottomY = ankle.y;
+      topY = earlobe.y;
+    }
 
-    // We no longer have head_vertex, so we estimate full height using earlobe to ankle
-    // Earlobe to ankle is roughly 90% of total height
-    const heightPx = Math.abs(ankle.y - earlobe.y) / 0.90;
+    const heightPx = Math.abs(bottomY - topY) / 0.90;
     if (heightPx === 0) return null;
 
     return heightCm / heightPx;
@@ -66,14 +105,16 @@ const AequumAnalysis = (() => {
    * @param {number} scaleFactor - cm per pixel
    * @returns {Array} Deviations [{landmarkId, landmarkName, deviationPx, deviationCm, status}]
    */
-  function calculateDeviations(landmarks, scaleFactor) {
-    const plumbX = getPlumbLineX(landmarks);
+  function calculateDeviations(landmarks, scaleFactor, facingDirection = 1, viewType = 'sagittal') {
+    const plumbX = getPlumbLineX(landmarks, viewType);
     if (plumbX === null) return [];
 
+    const defs = getLandmarks(viewType);
+
     return landmarks
-      .filter(l => l.id !== 'ankle_forward') // Reference point has 0 deviation
+      .filter(l => l.id !== 'ankle_forward' && l.id !== 'base_center') // Reference points have 0 deviation
       .map(l => {
-        const deviationPx = l.x - plumbX;
+        const deviationPx = viewType === 'posterior' ? (l.x - plumbX) : (l.x - plumbX) * facingDirection;
         const deviationCm = scaleFactor ? deviationPx * scaleFactor : null;
         const absDevCm = deviationCm !== null ? Math.abs(deviationCm) : null;
 
@@ -84,7 +125,7 @@ const AequumAnalysis = (() => {
           else status = 'alert';
         }
 
-        const def = LANDMARKS.find(def => def.id === l.id);
+        const def = defs.find(def => def.id === l.id);
 
         return {
           landmarkId: l.id,
@@ -95,8 +136,8 @@ const AequumAnalysis = (() => {
         };
       })
       .sort((a, b) => {
-        const orderA = LANDMARKS.findIndex(d => d.id === a.landmarkId);
-        const orderB = LANDMARKS.findIndex(d => d.id === b.landmarkId);
+        const orderA = defs.findIndex(d => d.id === a.landmarkId);
+        const orderB = defs.findIndex(d => d.id === b.landmarkId);
         return orderA - orderB;
       });
   }
@@ -158,8 +199,9 @@ const AequumAnalysis = (() => {
    * Draw a single landmark point on canvas
    */
   function drawLandmark(ctx, landmark, options = {}) {
-    const { radius = 8, showLabel = true, selected = false } = options;
-    const def = LANDMARKS.find(d => d.id === landmark.id);
+    const { radius = 8, showLabel = true, selected = false, viewType = 'sagittal' } = options;
+    const defs = getLandmarks(viewType);
+    const def = defs.find(d => d.id === landmark.id);
     const color = def ? def.color : '#ffffff';
 
     ctx.save();
@@ -437,7 +479,7 @@ const AequumAnalysis = (() => {
   /**
    * Generate HTML content for PDF report
    */
-  function generateReportHTML(client, session, deviations, imageDataUrl = null) {
+  function generateReportHTML(client, session, deviations, viewType = 'sagittal', imageDataUrl = null) {
     const date = new Date(session.capturedAt).toLocaleDateString('ja-JP', {
       year: 'numeric', month: 'long', day: 'numeric'
     });
@@ -545,7 +587,7 @@ const AequumAnalysis = (() => {
           <div><span class="label">主訴：</span><span class="value">${client.chiefComplaint || '—'}</span></div>
         </div>
 
-        <h3 style="font-size:14px; margin-bottom:12px;">評価結果（矢状面）</h3>
+        <h3 style="font-size:14px; margin-bottom:12px;">評価結果（${viewType === 'posterior' ? '前額面・後面' : '矢状面'}）</h3>
         <table>
           <thead>
             <tr><th>ランドマーク</th><th style="text-align:center;">ズレ量</th><th style="text-align:center;">判定</th></tr>
@@ -572,6 +614,9 @@ const AequumAnalysis = (() => {
   // ── Public API ───────────────────────────────────────
   return {
     LANDMARKS,
+    SAGITTAL_LANDMARKS,
+    POSTERIOR_LANDMARKS,
+    getLandmarks,
     THRESHOLDS,
     getPlumbLineX,
     calculateScaleFactor,
