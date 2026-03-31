@@ -765,6 +765,23 @@ const AequumAnalysis = (() => {
         .rpt-footer h4 { margin: 0 0 8px 0; color: #00A88D; font-size: 15px; }
         .tags { display: flex; gap: 8px; flex-wrap: wrap; }
         .tag { background: #00A88D; color: white; padding: 4px 12px; border-radius: 12px; font-size: 10px; font-weight: bold; }
+        
+        /* Mobile Responsive Styles */
+        @media (max-width: 768px) {
+          .rpt-wrap { padding: 12px; }
+          .rpt-header { flex-direction: column; gap: 16px; }
+          .rpt-header > div:last-child { text-align: left !important; }
+          .rpt-header > div:last-child > div { flex-wrap: wrap; flex-direction: column-reverse; align-items: flex-start !important; }
+          .rpt-score-band { width: 100% !important; min-width: 280px; }
+          .rpt-body { flex-direction: column; }
+          .rpt-left { flex: none; width: 100%; }
+          .rpt-bottom { flex-direction: column; }
+          .rpt-radar { width: 100%; }
+          .rpt-footer { flex-direction: column; text-align: center; gap: 16px; }
+          .tags { justify-content: center; }
+          .rpt-illus-row { flex-direction: column; align-items: center; text-align: center; }
+          .rpt-symptoms { text-align: left; }
+        }
       </style>
       
       <div class="rpt-wrap" id="printable-report">
