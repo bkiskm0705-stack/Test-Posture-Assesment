@@ -89,7 +89,7 @@
         loadClientDetail(data.clientId);
         break;
       case 'capture':
-        initCamera(data.clientId);
+        initCamera(data);
         break;
       case 'analyze':
         initAnalyze(data);
@@ -98,7 +98,7 @@
         initCompare(data.clientId);
         break;
       case 'report':
-        initReport(data.sessionId);
+        initReport(data);
         break;
     }
   }
@@ -139,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.4</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.5</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -263,23 +263,67 @@
     $('client-search').addEventListener('input', handleSearch);
     $('btn-new-session').addEventListener('click', () => {
       if (state.currentClient) {
-        $('modal-view-type').style.display = '';
+        state.viewType = 'sagittal';
+        navigateTo('capture', { clientId: state.currentClient.id, capturePhase: 'sagittal' });
       }
     });
 
-    $('btn-mode-sagittal').addEventListener('click', () => {
-      $('modal-view-type').style.display = 'none';
-      if (state.currentClient) {
-        state.viewType = 'sagittal';
-        navigateTo('capture', { clientId: state.currentClient.id });
+    // Daily Report Button
+    $('btn-daily-report').addEventListener('click', async () => {
+      if (!state.currentClient) return;
+      const sessions = await AequumDB.getSessionsByClient(state.currentClient.id);
+      
+      // Group sessions by date
+      const sessionsByDate = {};
+      sessions.forEach(s => {
+        const dateObj = new Date(s.capturedAt);
+        const dateStr = dateObj.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
+        if (!sessionsByDate[dateStr]) {
+          sessionsByDate[dateStr] = { sagittal: false, posterior: false, dateStr, timestamp: dateObj.getTime() };
+        }
+        if (s.viewType === 'posterior') {
+          sessionsByDate[dateStr].posterior = true;
+        } else {
+          sessionsByDate[dateStr].sagittal = true;
+        }
+      });
+
+      const listEl = $('daily-report-date-list');
+      const dates = Object.values(sessionsByDate).sort((a, b) => b.timestamp - a.timestamp);
+
+      if (dates.length === 0) {
+        listEl.innerHTML = '<div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">評価データがありません</div>';
+      } else {
+        listEl.innerHTML = dates.map(d => {
+          const bothAvailable = d.sagittal && d.posterior;
+          return `
+            <div class="client-card" style="display:flex; justify-content:space-between; align-items:center; opacity: ${bothAvailable ? '1' : '0.6'}" 
+                 data-date="${d.dateStr}" data-both="${bothAvailable}">
+              <div>
+                <div style="font-weight: 600; font-size: 1rem;">${d.dateStr}</div>
+                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px;">
+                  側面データ: ${d.sagittal ? '✔️' : '未撮影'} / 後面データ: ${d.posterior ? '✔️' : '未撮影'}
+                </div>
+              </div>
+              <button class="btn-outline btn-select-date" style="padding: 6px 12px; font-size: 0.85rem;">選択</button>
+            </div>
+          `;
+        }).join('');
+
+        listEl.querySelectorAll('.client-card').forEach(card => {
+          card.querySelector('.btn-select-date').addEventListener('click', () => {
+            const dateStr = card.dataset.date;
+            if (card.dataset.both === 'false') {
+              // Warn but allow? Or strictly block? The prompt expects both, let's allow but it might look incomplete
+              // Just close modal and navigate
+            }
+            $('modal-daily-report-select').style.display = 'none';
+            navigateTo('report', { mode: 'daily', clientId: state.currentClient.id, date: dateStr });
+          });
+        });
       }
-    });
-    $('btn-mode-posterior').addEventListener('click', () => {
-      $('modal-view-type').style.display = 'none';
-      if (state.currentClient) {
-        state.viewType = 'posterior';
-        navigateTo('capture', { clientId: state.currentClient.id });
-      }
+
+      $('modal-daily-report-select').style.display = '';
     });
 
     // Analyze toolbar
@@ -586,7 +630,6 @@
           <div class="session-actions">
             <button class="btn-view-session" data-id="${s.id}">詳細</button>
             <button class="btn-compare-session" data-id="${s.id}">比較</button>
-            <button class="btn-report-session" data-id="${s.id}">レポート</button>
           </div>
         </div>
       `;
@@ -605,26 +648,34 @@
         navigateTo('compare', { clientId: state.currentClient.id });
       });
     });
-    timeline.querySelectorAll('.btn-report-session').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        navigateTo('report', { sessionId: btn.dataset.id });
-      });
-    });
   }
 
   // ──────────────────────────────────────────────────────
   // PAGE: Camera / Capture
   // ──────────────────────────────────────────────────────
-  async function initCamera(clientId) {
+  async function initCamera(data) {
+    const clientId = data.clientId;
     state.currentClient = await AequumDB.getClient(clientId);
+    state.capturePhase = data.capturePhase || 'sagittal';
+    state.sagittalImageId = data.sagittalImageId || null;
+    state.sagittalImageBlob = data.sagittalImageBlob || null;
+
+    // Update instruction overlay
+    const instruction = $('capture-instruction');
+    if (instruction) {
+      if (state.capturePhase === 'sagittal') {
+        instruction.textContent = '1/2: 矢状面（側面）を撮影';
+      } else {
+        instruction.textContent = '2/2: 前額面（背面）を撮影';
+      }
+    }
 
     const video = $('camera-preview');
     const captureBtn = $('btn-capture');
     const photoInput = $('photo-upload-input');
 
     // Always bind photo upload (available alongside camera)
-    photoInput.addEventListener('change', async (e) => {
+    photoInput.onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
@@ -633,16 +684,33 @@
 
       cleanupResources();
       showToast('画像を読み込みました');
+      
+      // Reset input value to allow selecting the same file again if needed
+      e.target.value = '';
 
-      navigateTo('analyze', {
-        imageBlob: blob,
-        imageId: imageId,
-        clientId: clientId,
-        mode: 'new',
-      });
-    });
+      if (state.capturePhase === 'sagittal') {
+        navigateTo('capture', {
+          clientId: clientId,
+          capturePhase: 'posterior',
+          sagittalImageBlob: blob,
+          sagittalImageId: imageId
+        });
+      } else {
+        navigateTo('analyze', {
+          mode: 'dual_new',
+          clientId: clientId,
+          sagittalImageBlob: state.sagittalImageBlob,
+          sagittalImageId: state.sagittalImageId,
+          posteriorImageBlob: blob,
+          posteriorImageId: imageId,
+        });
+      }
+    };
 
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('NotSupportedError');
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment',
@@ -659,11 +727,16 @@
       // Start gyroscope
       initGyroscope();
 
-      // Capture button
+      // Capture button (remove event listener first to prevent duplicates)
+      captureBtn.removeEventListener('click', handleCapture);
       captureBtn.addEventListener('click', handleCapture);
     } catch (err) {
       console.error('Camera access denied', err);
-      showToast('カメラが利用できません。写真をアップロードしてください', 'error');
+      if (err.message === 'NotSupportedError') {
+        showToast('スマホ(HTTP接続)ではブラウザのセキュリティによりカメラが直接起動できません。隣の「写真アップロード」ボタンをご利用ください', 'error');
+      } else {
+        showToast('カメラが利用できません。写真をアップロードしてください', 'error');
+      }
 
       // Disable shutter but keep upload button active
       captureBtn.disabled = true;
@@ -789,13 +862,23 @@
 
     showToast('撮影完了');
 
-    // Navigate to analyze page
-    navigateTo('analyze', {
-      imageBlob: blob,
-      imageId: imageId,
-      clientId: state.currentClient.id,
-      mode: 'new',
-    });
+    if (state.capturePhase === 'sagittal') {
+      navigateTo('capture', {
+        clientId: state.currentClient.id,
+        capturePhase: 'posterior',
+        sagittalImageBlob: blob,
+        sagittalImageId: imageId
+      });
+    } else {
+      navigateTo('analyze', {
+        mode: 'dual_new',
+        clientId: state.currentClient.id,
+        sagittalImageBlob: state.sagittalImageBlob,
+        sagittalImageId: state.sagittalImageId,
+        posteriorImageBlob: blob,
+        posteriorImageId: imageId,
+      });
+    }
   }
 
   function showImageUploadFallback(clientId) {
@@ -1014,11 +1097,25 @@
       state.currentClient = await AequumDB.getClient(session.clientId);
     } else {
       // New session from capture
-      imageBlob = data.imageBlob;
-      state.currentSession = {
-        imageId: data.imageId,
-        clientId: data.clientId,
-      };
+      if (data.mode === 'dual_new') {
+        state.dualMode = true;
+        state.dualPhase = 'sagittal';
+        state.sagittalData = { imageId: data.sagittalImageId, imageBlob: data.sagittalImageBlob };
+        state.posteriorData = { imageId: data.posteriorImageId, imageBlob: data.posteriorImageBlob };
+        imageBlob = data.sagittalImageBlob;
+        state.currentSession = { imageId: data.sagittalImageId, clientId: data.clientId };
+        state.viewType = 'sagittal';
+        $('btn-save-analysis').innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg> 次へ (前額面)';
+      } else {
+        imageBlob = data.imageBlob;
+        state.dualMode = false;
+        state.currentSession = {
+          imageId: data.imageId,
+          clientId: data.clientId,
+        };
+        $('btn-save-analysis').innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> 保存';
+      }
+
       state.placedLandmarks = [];
       state.scaleFactor = null;
       state.facingDirection = 1;
@@ -1523,28 +1620,92 @@
       return result;
     });
 
+    if (state.dualMode && state.dualPhase === 'sagittal') {
+      // Step 1: Save Sagittal data temporarily
+      state.sagittalData.landmarks = landmarksToSave;
+      state.sagittalData.deviations = deviations;
+      state.sagittalData.scaleFactor = state.scaleFactor;
+      state.sagittalData.facingDirection = state.facingDirection;
+
+      showToast('矢状面のランドマークを記録しました');
+
+      // Switch to Phase 2
+      state.dualPhase = 'posterior';
+      state.viewType = 'posterior';
+      state.currentSession = { imageId: state.posteriorData.imageId, clientId: state.currentSession.clientId };
+      $('btn-save-analysis').innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> 完了 (保存)';
+
+      // Load posterior image
+      const img = new Image();
+      const url = URL.createObjectURL(state.posteriorData.imageBlob);
+      img.onload = () => {
+        state.analyzeImage = img;
+        state.placedLandmarks = [];
+        state.scaleFactor = null;
+        state.facingDirection = 1;
+        state.viewZoom = 1;
+        state.viewPanX = 0;
+        state.viewPanY = 0;
+
+        // Force resize to set draw state
+        window.dispatchEvent(new Event('resize'));
+        
+        setTimeout(runAutoDetection, 100);
+      };
+      img.src = url;
+
+      return;
+    }
+
     try {
-      if (state.currentSession && state.currentSession.id) {
-        // Update existing session
-        await AequumDB.updateSession(state.currentSession.id, {
-          landmarks: landmarksToSave,
-          deviations: deviations,
-          scaleFactor: state.scaleFactor,
-          facingDirection: state.facingDirection,
-          viewType: state.viewType,
-        });
-      } else {
-        // Create new session
-        const session = await AequumDB.createSession({
+      if (state.dualMode) {
+        // Step 2: Save both Sagittal and Posterior sessions
+        await AequumDB.createSession({
           clientId: state.currentSession.clientId,
-          imageId: state.currentSession.imageId,
+          imageId: state.sagittalData.imageId,
+          landmarks: state.sagittalData.landmarks,
+          deviations: state.sagittalData.deviations,
+          scaleFactor: state.sagittalData.scaleFactor,
+          facingDirection: state.sagittalData.facingDirection,
+          viewType: 'sagittal',
+        });
+        
+        // Posterior
+        const sessionPos = await AequumDB.createSession({
+          clientId: state.currentSession.clientId,
+          imageId: state.posteriorData.imageId,
           landmarks: landmarksToSave,
           deviations: deviations,
           scaleFactor: state.scaleFactor,
           facingDirection: state.facingDirection,
-          viewType: state.viewType,
+          viewType: 'posterior',
         });
-        state.currentSession = session;
+        state.currentSession = sessionPos;
+
+        state.dualMode = false;
+      } else {
+        if (state.currentSession && state.currentSession.id) {
+          // Update existing session
+          await AequumDB.updateSession(state.currentSession.id, {
+            landmarks: landmarksToSave,
+            deviations: deviations,
+            scaleFactor: state.scaleFactor,
+            facingDirection: state.facingDirection,
+            viewType: state.viewType,
+          });
+        } else {
+          // Create new session
+          const session = await AequumDB.createSession({
+            clientId: state.currentSession.clientId,
+            imageId: state.currentSession.imageId,
+            landmarks: landmarksToSave,
+            deviations: deviations,
+            scaleFactor: state.scaleFactor,
+            facingDirection: state.facingDirection,
+            viewType: state.viewType,
+          });
+          state.currentSession = session;
+        }
       }
 
       showToast('解析結果を保存しました');
@@ -1761,7 +1922,35 @@
   // ──────────────────────────────────────────────────────
   // PAGE: Report
   // ──────────────────────────────────────────────────────
-  async function initReport(sessionId) {
+  async function initReport(data) {
+    state.reportMode = data && data.mode === 'daily' ? 'daily' : 'single';
+    
+    if (state.reportMode === 'daily') {
+      const { clientId, date: dateStr } = data;
+      const client = await AequumDB.getClient(clientId);
+      if (!client) { showToast('患者が見つかりません', 'error'); goBack(); return; }
+      state.currentClient = client;
+
+      const sessions = await AequumDB.getSessionsByClient(clientId);
+      const targetSessions = sessions.filter(s => {
+        const ds = new Date(s.capturedAt).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
+        return ds === dateStr;
+      });
+
+      const sagittalSession = targetSessions.find(s => s.viewType !== 'posterior') || null;
+      const posteriorSession = targetSessions.find(s => s.viewType === 'posterior') || null;
+      state.currentSession = sagittalSession || posteriorSession || targetSessions[0];
+
+      const container = $('report-content');
+      container.innerHTML = await AequumAnalysis.generateCombinedReportHTML(client, sagittalSession, posteriorSession, dateStr);
+
+      setTimeout(() => {
+        AequumAnalysis.drawRadarChart('radar-chart-canvas', sagittalSession, posteriorSession);
+      }, 50);
+      return;
+    }
+
+    const sessionId = typeof data === 'string' ? data : data.sessionId;
     const session = await AequumDB.getSession(sessionId);
     if (!session) { showToast('セッションが見つかりません', 'error'); goBack(); return; }
 

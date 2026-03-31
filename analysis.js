@@ -176,6 +176,48 @@ const AequumAnalysis = (() => {
     return Math.round(angleDeg * 10) / 10;
   }
 
+  /**
+   * Calculate horizontal tilt between two symmetric points (e.g. shoulders, hips)
+   */
+  function calculateTilt(leftPoint, rightPoint) {
+    if (!leftPoint || !rightPoint) return null;
+    const dx = rightPoint.x - leftPoint.x;
+    const dy = rightPoint.y - leftPoint.y; // In canvas, +y is down.
+    const angleDeg = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
+    return Math.round(angleDeg * 10) / 10;
+  }
+
+  /**
+   * Get specific knee angles from posterior or sagittal landmarks
+   */
+  function getKneeAngles(landmarks, viewType) {
+    if (viewType === 'sagittal') {
+      const hip = landmarks.find(l => l.id === 'greater_trochanter');
+      const knee = landmarks.find(l => l.id === 'knee');
+      const ankle = landmarks.find(l => l.id === 'lateral_malleolus');
+      if (hip && knee && ankle) {
+        return { sagittal: Math.round(calculateAngle(hip, knee, ankle)) };
+      }
+      return {};
+    }
+
+    if (viewType === 'posterior') {
+      const hipL = landmarks.find(l => l.id === 'psis_left');
+      const kneeL = landmarks.find(l => l.id === 'popliteal_left');
+      const ankleL = landmarks.find(l => l.id === 'calcaneus_left');
+      
+      const hipR = landmarks.find(l => l.id === 'psis_right');
+      const kneeR = landmarks.find(l => l.id === 'popliteal_right');
+      const ankleR = landmarks.find(l => l.id === 'calcaneus_right');
+
+      const angles = {};
+      if (hipL && kneeL && ankleL) angles.left = Math.round(calculateAngle(hipL, kneeL, ankleL));
+      if (hipR && kneeR && ankleR) angles.right = Math.round(calculateAngle(hipR, kneeR, ankleR));
+      return angles;
+    }
+    return {};
+  }
+
   // ── Drawing Utilities ────────────────────────────────
 
   /**
@@ -611,6 +653,372 @@ const AequumAnalysis = (() => {
     `;
   }
 
+  // ── Daily Combined Report Generation ────────────────
+  async function generateCombinedReportHTML(client, sagittalSession, posteriorSession, dateStr) {
+    let score = 100;
+    const sDevs = sagittalSession ? (sagittalSession.deviations || []) : [];
+    const pDevs = posteriorSession ? (posteriorSession.deviations || []) : [];
+    const sLandmarks = sagittalSession ? (sagittalSession.landmarks || []) : [];
+    const pLandmarks = posteriorSession ? (posteriorSession.landmarks || []) : [];
+    
+    // Knee Angles
+    const kneeAngles = getKneeAngles(pLandmarks, 'posterior');
+    const kneeAngleRight = kneeAngles.right || '-';
+    const kneeAngleLeft = kneeAngles.left || '-';
+
+    // Tilt
+    const shoulderL = pLandmarks.find(l => l.id === 'acromion_left');
+    const shoulderR = pLandmarks.find(l => l.id === 'acromion_right');
+    const shoulderTilt = calculateTilt(shoulderL, shoulderR) || 0;
+
+    const pelvisL = pLandmarks.find(l => l.id === 'psis_left');
+    const pelvisR = pLandmarks.find(l => l.id === 'psis_right');
+    const pelvisTilt = calculateTilt(pelvisL, pelvisR) || 0;
+
+    const devPercent = (val) => Math.min(100, Math.round((val || 0) * 10));
+
+    // Calc overall score
+    const totalDevs = [...sDevs, ...pDevs];
+    totalDevs.forEach(d => {
+      if (d.status === 'alert') score -= 4;
+      else if (d.status === 'warn') score -= 2;
+    });
+    score = Math.max(0, score);
+
+    let tendencyTitle = '良好な姿勢バランスです';
+    let tendencyDesc = '全体的に負担の少ない良い姿勢を保てています。';
+    if (sDevs.find(d => d.landmarkId === 'greater_trochanter' && d.deviationCm > 2)) {
+      tendencyTitle = '反り腰の傾向があります';
+      tendencyDesc = '現在の姿勢は反り腰の傾向が見られます。腰が強く弧を描き、お尻が前方に突き出した状態を指します。骨盤が前傾してしまうため、膝や足首への負担が増加します。長期間にわたってこの姿勢が続くと、腰痛や坐骨神経痛などの問題が生じる可能性があります。';
+    } else if (sDevs.find(d => d.landmarkId === 'acromion' && d.deviationCm > 2)) {
+      tendencyTitle = '猫背・巻き肩の傾向があります';
+      tendencyDesc = '肩が前方に巻いて背中が丸くなっています。首・肩の負担が大きく、呼吸が浅くなる可能性があります。';
+    } else if (score < 80) {
+      tendencyTitle = 'アライメントの乱れが見られます';
+      tendencyDesc = '各部位のズレが蓄積しています。身体のバランスを整えるケアをおすすめします。';
+    }
+
+    let sagHtml = '<div class="empty-img">側面データなし</div>';
+    if (sagittalSession && sagittalSession.imageId) {
+      const blob = await AequumDB.getImage(sagittalSession.imageId);
+      if (blob) sagHtml = `<img src="${URL.createObjectURL(blob)}" class="report-img" />`;
+    }
+
+    let posHtml = '<div class="empty-img">背面データなし</div>';
+    if (posteriorSession && posteriorSession.imageId) {
+      const blob = await AequumDB.getImage(posteriorSession.imageId);
+      if (blob) posHtml = `<img src="${URL.createObjectURL(blob)}" class="report-img" />`;
+    }
+
+    return `
+      <style>
+        .rpt-wrap { font-family: 'Noto Sans JP', sans-serif; color: #333; max-width: 900px; margin: 0 auto; line-height: 1.5; background: #fff; padding: 24px; box-sizing: border-box; }
+        .rpt-header { display: flex; justify-content: space-between; align-items: stretch; margin-bottom: 20px; border-top: 4px solid #00A88D; padding-top: 12px; }
+        .rpt-logo { font-size: 20px; font-weight: 700; color: #555; display: flex; align-items: center; gap: 8px; }
+        .rpt-logo-icon { width: 40px; height: 40px; background: #e0e0e0; border-radius: 8px; display:flex; align-items:center; justify-content:center; color:white; }
+        .rpt-title { font-size: 20px; font-weight: bold; color: #00A88D; margin-top: 4px; }
+        .rpt-score-band { display: flex; gap: 2px; height: 48px; border-radius: 4px; overflow: hidden; font-size: 10px; color: white; text-align: center; line-height: 1.2; font-weight:bold; }
+        .score-box { flex: 1; padding: 4px; display:flex; align-items:center; justify-content:center; }
+        .sb-1 { background: #E57373; opacity: 0.6; } .sb-2 { background: #E57373; opacity: 0.8; }
+        .sb-3 { background: #E57373; } .sb-4 { background: #81C784; } .sb-5 { background: #00A88D; }
+        .rpt-score-large { background: #fdf5f5; border: 2px solid #E57373; border-radius: 4px; padding: 8px 16px; text-align: center; color: #E57373; }
+        .rpt-score-large .num { font-size: 36px; font-weight: bold; line-height: 1; margin-right: 4px; }
+        
+        .rpt-body { display: flex; gap: 24px; margin-bottom: 24px; }
+        .rpt-left { flex: 0 0 380px; }
+        .rpt-images { display: flex; gap: 8px; height: 320px; margin-bottom: 16px; }
+        .rpt-img-wrap { flex: 1; background: #f5f5f5; border-radius: 4px; overflow: hidden; position: relative;}
+        .report-img { width: 100%; height: 100%; object-fit: cover; }
+        .empty-img { width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#aaa; font-size:12px; }
+        
+        .rpt-score-rows { display: flex; flex-direction: column; gap: 8px; }
+        .scr-row { display: flex; align-items: center; gap: 12px; font-size: 11px; }
+        .scr-label { width: 24px; text-align: center; border: 1px solid #ddd; padding: 4px 0; font-weight:bold; }
+        .scr-metrics { font-size: 9px; color: #666; width: 40px; }
+        .scr-circle { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px; background: #00A88D; }
+        .scr-circle.bad { background: #E57373; }
+        .scr-line { flex: 1; height: 1px; background: #ddd; position: relative; }
+        
+        .rpt-right { flex: 1; }
+        .rpt-banner { background: #00A88D; color: white; font-weight: bold; font-size: 22px; text-align: center; padding: 12px; border-radius: 4px; margin-bottom: 16px; }
+        .rpt-illus-row { display: flex; gap: 16px; }
+        .rpt-illus { width: 120px; background: #f9f9f9; display:flex; justify-content:center; }
+        .rpt-symptoms { border: 2px solid #a8dfd5; padding: 16px; border-radius: 4px; margin-top: 16px; font-size: 12px; }
+        .rpt-symptoms h4 { color: #00A88D; margin: 0 0 8px 0; font-size: 13px; }
+        .rpt-symptoms p { color: #E57373; font-weight: bold; margin: 0; line-height: 1.6; }
+        
+        .rpt-knee { background: #f5f5f5; padding: 12px; text-align: center; font-weight: bold; margin-top: 16px; border-radius: 4px; }
+        .rpt-knee-val { display: flex; justify-content: space-around; align-items: center; margin-top: 12px; }
+        .knee-num { font-size: 32px; color: #E57373; }
+        .knee-num.good { color: #00A88D; }
+        
+        .rpt-bottom-banner { background: #00A88D; color: white; font-weight: bold; text-align: center; padding: 8px; border-radius: 20px; margin-bottom: 16px; }
+        .rpt-bottom { display: flex; gap: 24px; align-items: center; margin-bottom: 24px; }
+        .rpt-radar { width: 240px; height: 240px; flex-shrink: 0; display:flex; justify-content:center; align-items:center; }
+        .rpt-advice { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+        .advice-card { border: 1px solid #eee; border-radius: 8px; padding: 12px; display: flex; gap: 12px; align-items: flex-start; }
+        .advice-icon { width: 60px; height: 60px; background: #f0f8f7; border-radius: 4px; flex-shrink: 0; display:flex; align-items:center; justify-content:center; color: #00A88D; }
+        .advice-text h5 { margin: 0 0 4px 0; font-size: 13px; color: #333; }
+        .advice-text p { margin: 0; font-size: 11px; color: #666; }
+        
+        .rpt-footer { border: 2px solid #00A88D; border-radius: 8px; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+        .rpt-footer h4 { margin: 0 0 8px 0; color: #00A88D; font-size: 15px; }
+        .tags { display: flex; gap: 8px; flex-wrap: wrap; }
+        .tag { background: #00A88D; color: white; padding: 4px 12px; border-radius: 12px; font-size: 10px; font-weight: bold; }
+      </style>
+      
+      <div class="rpt-wrap" id="printable-report">
+        <!-- Header -->
+        <div class="rpt-header">
+          <div>
+            <div class="rpt-logo">
+              <div class="rpt-logo-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></div>
+              <div>サンプル店舗<div class="rpt-title">姿勢分析レポート</div></div>
+            </div>
+          </div>
+          <div style="text-align: right; font-size: 10px; color: #666;">
+            ${dateStr}
+            <div style="margin-top:4px; display:flex; align-items:flex-end; gap:8px;">
+              <div>
+                <span style="font-size:10px; color:#999;">姿勢スコア基準表</span>
+                <div class="rpt-score-band" style="width:280px;">
+                  <div class="score-box sb-1">~59<br>深刻な歪み</div>
+                  <div class="score-box sb-2">~69<br>要ケア</div>
+                  <div class="score-box sb-3">~79<br>惜しい</div>
+                  <div class="score-box sb-4">~89<br>良い姿勢</div>
+                  <div class="score-box sb-5">~100<br>美姿勢</div>
+                </div>
+              </div>
+              <div class="rpt-score-large">
+                <div style="font-size:10px; text-align:left; color:#E57373;">姿勢スコア</div>
+                <div><span class="num">${score}</span><span style="font-size:12px;">/100点</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Body -->
+        <div class="rpt-body">
+          <div class="rpt-left">
+            <div class="rpt-images">
+              <div class="rpt-img-wrap">${posHtml}</div>
+              <div class="rpt-img-wrap">${sagHtml}</div>
+            </div>
+            <div class="rpt-score-rows">
+              <div class="scr-row">
+                <div class="scr-label">頭</div>
+                <div class="scr-metrics">傾き ${shoulderTilt}°<br>ズレ ${devPercent(sDevs.find(d=>d.landmarkId.includes('tragus'))?.deviationCm)}%</div>
+                <div class="scr-circle">10</div>
+                <div class="scr-line"></div>
+                <div class="scr-label" style="border:none;">頭</div>
+                <div class="scr-metrics">ズレ 0%</div>
+                <div class="scr-circle bad">8</div>
+              </div>
+              <div class="scr-row">
+                <div class="scr-label">肩</div>
+                <div class="scr-metrics">傾き ${shoulderTilt}°<br>ズレ 0%</div>
+                <div class="scr-circle">10</div>
+                <div class="scr-line"></div>
+                <div class="scr-label" style="border:none;">肩</div>
+                <div class="scr-metrics">ズレ 0%</div>
+                <div class="scr-circle bad">8</div>
+              </div>
+              <div class="scr-row">
+                <div class="scr-label">腰</div>
+                <div class="scr-metrics">傾き ${pelvisTilt}°<br>ズレ 0%</div>
+                <div class="scr-circle">10</div>
+                <div class="scr-line"></div>
+                <div class="scr-label" style="border:none;">腰</div>
+                <div class="scr-metrics">ズレ 0%</div>
+                <div class="scr-circle bad">6</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rpt-right">
+            <div class="rpt-banner">${tendencyTitle}</div>
+            <div class="rpt-illus-row">
+              <div class="rpt-illus">
+                <svg width="60" height="180" viewBox="0 0 60 180">
+                  <path d="M30 10 Q40 40 30 70 Q20 100 30 130 Q40 160 30 180" stroke="#00A88D" stroke-width="4" stroke-dasharray="4 4" fill="none"/>
+                  <circle cx="30" cy="10" r="8" fill="#E57373" opacity="0.5"/>
+                  <circle cx="35" cy="40" r="6" fill="#E57373"/>
+                  <circle cx="25" cy="100" r="8" fill="#E57373" opacity="0.8"/>
+                  <circle cx="35" cy="150" r="6" fill="#E57373"/>
+                </svg>
+              </div>
+              <div style="flex:1; font-size:12px; color:#555;">
+                <p>${tendencyDesc}</p>
+                <div class="rpt-symptoms">
+                  <h4>起こりやすい症状</h4>
+                  <p>腰痛・ポッコリおなか・垂れ尻・足のしびれ・股関節痛・前太ももの張り・膝の痛み</p>
+                </div>
+              </div>
+            </div>
+            
+            <div class="rpt-knee">膝の分析</div>
+            <div class="rpt-knee-val">
+              <div><div style="font-size:11px; color:#666;">右</div><div class="knee-num ${kneeAngleRight > 175 ? 'good':''}">${Math.abs(kneeAngleRight)}<span>度</span></div></div>
+              <div><div style="font-size:11px; color:#666;">左</div><div class="knee-num ${kneeAngleLeft > 175 ? 'good':''}">${Math.abs(kneeAngleLeft)}<span>度</span></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rpt-bottom-banner">姿勢バランスチャート＆私生活で注意するポイント</div>
+        <div class="rpt-bottom">
+          <div class="rpt-radar">
+            <canvas id="radar-chart-canvas" width="220" height="220"></canvas>
+          </div>
+          <div class="rpt-advice">
+            <div class="advice-card">
+              <div class="advice-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 19v-4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v4"></path><path d="M4 19h16v2H4z"></path><path d="M6 13V9a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v4"></path></svg>
+              </div>
+              <div class="advice-text">
+                <h5>ソファで足を上げて座る</h5>
+                <p>足を上げて座ると、骨盤が歪みやすく腰痛の原因になります。足を下ろすと腰・骨盤への負担を減らせます。</p>
+              </div>
+            </div>
+            <div class="advice-card">
+              <div class="advice-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M8 8V6a4 4 0 0 1 8 0v2"></path></svg>
+              </div>
+              <div class="advice-text">
+                <h5>荷物を片側の肩だけで持つ</h5>
+                <p>片方の肩だけで荷物を持つと体が傾きやすくなり、肩や背中に負担が集中します。両肩でバランス良く持つ習慣をつけることが大切です。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rpt-footer">
+          <div>
+            <h4>【魔法の3分】座ったままできる！反り腰改善＆骨盤メンテナンス</h4>
+            <div class="tags">
+              <span class="tag">反り腰改善</span><span class="tag">腰痛改善</span><span class="tag">姿勢矯正</span>
+              <span class="tag">ポッコリおなか解消</span><span class="tag">ヒップアップ</span><span class="tag">血行改善</span>
+            </div>
+          </div>
+          <div style="text-align:center; font-size:10px; font-weight:bold;">
+            QRを読んで今すぐ開始！
+            <div style="background:#000; width:60px; height:60px; margin: 4px auto 0;"></div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function drawRadarChart(canvasId, sagittalSession, posteriorSession) {
+    const canvas = typeof canvasId === 'string' ? document.getElementById(canvasId) : canvasId;
+    if (!canvas) return;
+
+    // Estimate values 0-100 based on deviations for specific areas
+    const sDevs = sagittalSession ? (sagittalSession.deviations || []) : [];
+    const pDevs = posteriorSession ? (posteriorSession.deviations || []) : [];
+
+    // Helper: 100 is perfect, sub for each cm of dev
+    const calcScore = (ids, devs) => {
+      let deduction = 0;
+      ids.forEach(id => {
+        const d = devs.find(x => x.landmarkId.includes(id));
+        if (d && d.deviationCm !== null) {
+          deduction += Math.abs(d.deviationCm) * 3;
+        }
+      });
+      return Math.max(20, 100 - deduction);
+    };
+
+    const scores = {
+      head: calcScore(['earrobe', 'ear'], [...sDevs, ...pDevs]),
+      shoulder: calcScore(['acromion'], [...sDevs, ...pDevs]),
+      back: calcScore(['c7', 'psis'], [...sDevs, ...pDevs]),
+      pelvis: calcScore(['greater_trochanter', 'psis'], [...sDevs, ...pDevs]),
+      knee: calcScore(['knee', 'popliteal'], [...sDevs, ...pDevs])
+    };
+
+    canvas.width = 240;
+    canvas.height = 240;
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const cx = width / 2;
+    const cy = height / 2;
+    const r = 80;
+
+    const labels = ['頭', '肩', '腰', '脚', '背中'];
+    const data = [scores.head, scores.shoulder, scores.pelvis, scores.knee, scores.back];
+    
+    ctx.clearRect(0, 0, width, height);
+
+    // Grid config
+    const levels = 5;
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+
+    for (let i = 1; i <= levels; i++) {
+        const levelR = r * (i / levels);
+        ctx.beginPath();
+        for (let j = 0; j < 5; j++) {
+            const angle = (Math.PI / 2) - 2 * Math.PI * j / 5;
+            const x = cx + levelR * Math.cos(angle);
+            const y = cy - levelR * Math.sin(angle);
+            if (j === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+    }
+
+    // Axes config
+    for (let j = 0; j < 5; j++) {
+        const angle = (Math.PI / 2) - 2 * Math.PI * j / 5;
+        const x = cx + r * Math.cos(angle);
+        const y = cy - r * Math.sin(angle);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+
+        // Labels
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const lx = cx + (r + 16) * Math.cos(angle);
+        const ly = cy - (r + 16) * Math.sin(angle);
+        ctx.fillText(labels[j], lx, ly);
+    }
+
+    // Data polygon
+    ctx.beginPath();
+    for (let j = 0; j < 5; j++) {
+        const angle = (Math.PI / 2) - 2 * Math.PI * j / 5;
+        const val = data[j] / 100;
+        const x = cx + r * val * Math.cos(angle);
+        const y = cy - r * val * Math.sin(angle);
+        if (j === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0, 201, 167, 0.2)';
+    ctx.fill();
+    ctx.strokeStyle = '#00C9A7';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Data points
+    for (let j = 0; j < 5; j++) {
+        const angle = (Math.PI / 2) - 2 * Math.PI * j / 5;
+        const val = data[j] / 100;
+        const x = cx + r * val * Math.cos(angle);
+        const y = cy - r * val * Math.sin(angle);
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#00C9A7';
+        ctx.fill();
+    }
+  }
+
   // ── Public API ───────────────────────────────────────
   return {
     LANDMARKS,
@@ -623,6 +1031,8 @@ const AequumAnalysis = (() => {
     calculateDeviations,
     calculateAngle,
     calculateCVA,
+    calculateTilt,
+    getKneeAngles,
     drawPlumbLine,
     drawLandmark,
     drawDeviationLine,
@@ -630,5 +1040,7 @@ const AequumAnalysis = (() => {
     getTrendData,
     drawTrendChart,
     generateReportHTML,
+    generateCombinedReportHTML,
+    drawRadarChart
   };
 })();
