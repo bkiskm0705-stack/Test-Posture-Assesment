@@ -591,11 +591,34 @@ input, select, textarea { font-family: inherit; }
   align-items: center;
   justify-content: space-between;
   margin-bottom: var(--space-md);
+  gap: var(--space-sm);
+  flex-wrap: wrap;
 }
 .section-header h2 {
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-primary);
+  white-space: nowrap;
+}
+.section-header .btn-outline,
+.section-header .btn-accent {
+  white-space: nowrap;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 480px) {
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .section-header h2 {
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  .section-header > div {
+    justify-content: center;
+  }
 }
 
 /* ── Timeline ──────────────────────────────────────── */

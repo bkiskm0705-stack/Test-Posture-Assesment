@@ -769,18 +769,39 @@ const AequumAnalysis = (() => {
         /* Mobile Responsive Styles */
         @media (max-width: 768px) {
           .rpt-wrap { padding: 12px; }
-          .rpt-header { flex-direction: column; gap: 16px; }
+          .rpt-header { flex-direction: column; gap: 12px; }
           .rpt-header > div:last-child { text-align: left !important; }
-          .rpt-header > div:last-child > div { flex-wrap: wrap; flex-direction: column-reverse; align-items: flex-start !important; }
-          .rpt-score-band { width: 100% !important; min-width: 280px; }
-          .rpt-body { flex-direction: column; }
+          .rpt-header > div:last-child > div { flex-wrap: wrap; flex-direction: column; align-items: stretch !important; gap: 8px; }
+          .rpt-score-band { width: 100% !important; min-width: 0; height: 40px; font-size: 9px; }
+          .rpt-score-large { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+          .rpt-score-large .num { font-size: 28px; }
+          .rpt-body { flex-direction: column; gap: 16px; }
           .rpt-left { flex: none; width: 100%; }
-          .rpt-bottom { flex-direction: column; }
-          .rpt-radar { width: 100%; }
-          .rpt-footer { flex-direction: column; text-align: center; gap: 16px; }
+          .rpt-images { height: 220px; }
+          .rpt-banner { font-size: 16px; padding: 10px; }
+          .scr-row { gap: 4px; font-size: 10px; }
+          .scr-label { width: 20px; font-size: 10px; padding: 2px 0; }
+          .scr-metrics { font-size: 8px; width: 32px; }
+          .scr-circle { width: 20px; height: 20px; font-size: 10px; }
+          .scr-line { min-width: 8px; }
+          .rpt-illus-row { flex-direction: column; align-items: center; }
+          .rpt-illus { width: 80px; }
+          .rpt-symptoms { text-align: left; padding: 12px; }
+          .knee-num { font-size: 24px; }
+          .rpt-bottom-banner { font-size: 13px; padding: 6px; }
+          .rpt-bottom { flex-direction: column; gap: 16px; }
+          .rpt-radar { width: 100%; height: 200px; }
+          .rpt-radar canvas { width: 200px !important; height: 200px !important; }
+          .advice-card { padding: 8px; gap: 8px; }
+          .advice-icon { width: 44px; height: 44px; }
+          .advice-text h5 { font-size: 12px; }
+          .advice-text p { font-size: 10px; }
+          .rpt-footer { flex-direction: column; text-align: center; gap: 12px; padding: 12px; }
+          .rpt-footer h4 { font-size: 13px; }
           .tags { justify-content: center; }
-          .rpt-illus-row { flex-direction: column; align-items: center; text-align: center; }
-          .rpt-symptoms { text-align: left; }
+          .tag { font-size: 9px; padding: 3px 8px; }
+          .rpt-logo { font-size: 16px; }
+          .rpt-title { font-size: 16px; }
         }
       </style>
       
