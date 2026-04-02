@@ -241,7 +241,7 @@ const AequumAnalysis = (() => {
    * Draw a single landmark point on canvas
    */
   function drawLandmark(ctx, landmark, options = {}) {
-    const { radius = 8, showLabel = true, selected = false, viewType = 'sagittal' } = options;
+    const { radius = 8, showLabel = true, selected = false, viewType = 'sagittal', deviation = null } = options;
     const defs = getLandmarks(viewType);
     const def = defs.find(d => d.id === landmark.id);
     const color = def ? def.color : '#ffffff';
@@ -275,20 +275,75 @@ const AequumAnalysis = (() => {
       ctx.globalAlpha = 1;
       ctx.font = '11px Inter, sans-serif';
       ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'left';
 
-      // Background for label
       const text = def.name;
       const metrics = ctx.measureText(text);
-      const labelX = landmark.x + radius + 6;
-      const labelY = landmark.y + 4;
+      const labelW = metrics.width + 8;
 
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.roundRect(labelX - 4, labelY - 12, metrics.width + 8, 16, 3);
-      ctx.fill();
+      // Deviation text
+      let devText = '';
+      let devColor = '#00D9A6';
+      if (deviation && deviation.deviationCm !== null) {
+        const sign = deviation.deviationCm > 0 ? '+' : '';
+        devText = `${sign}${deviation.deviationCm}cm`;
+        devColor = deviation.status === 'ok' ? '#00D9A6' : deviation.status === 'warn' ? '#FFD93D' : '#FF6B6B';
+      }
 
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(text, labelX, labelY);
+      ctx.font = 'bold 10px JetBrains Mono, monospace';
+      const devMetrics = devText ? ctx.measureText(devText) : { width: 0 };
+      ctx.font = '11px Inter, sans-serif';
+
+      const totalLabelW = Math.max(labelW, devMetrics.width + 8);
+      const totalH = devText ? 32 : 16;
+
+      // Determine label side: posterior view uses left/right positioning
+      let labelOnLeft = false;
+      if (viewType === 'posterior') {
+        if (landmark.id.includes('_left')) {
+          labelOnLeft = true;
+        } else if (landmark.id.includes('_right')) {
+          labelOnLeft = false;
+        }
+      }
+
+      let labelX, labelY;
+      labelY = landmark.y + 4;
+
+      if (labelOnLeft) {
+        ctx.textAlign = 'right';
+        labelX = landmark.x - radius - 6;
+        // Background
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.roundRect(labelX - Math.max(metrics.width, devMetrics.width) - 4, labelY - 12, totalLabelW, totalH, 3);
+        ctx.fill();
+        // Name text
+        ctx.font = '11px Inter, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(text, labelX, labelY);
+        // Deviation text below
+        if (devText) {
+          ctx.font = 'bold 10px JetBrains Mono, monospace';
+          ctx.fillStyle = devColor;
+          ctx.fillText(devText, labelX, labelY + 14);
+        }
+      } else {
+        ctx.textAlign = 'left';
+        labelX = landmark.x + radius + 6;
+        // Background
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.roundRect(labelX - 4, labelY - 12, totalLabelW, totalH, 3);
+        ctx.fill();
+        // Name text
+        ctx.font = '11px Inter, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(text, labelX, labelY);
+        // Deviation text below
+        if (devText) {
+          ctx.font = 'bold 10px JetBrains Mono, monospace';
+          ctx.fillStyle = devColor;
+          ctx.fillText(devText, labelX, labelY + 14);
+        }
+      }
     }
 
     ctx.restore();
@@ -312,23 +367,7 @@ const AequumAnalysis = (() => {
     ctx.lineTo(landmark.x, landmark.y);
     ctx.stroke();
 
-    // Deviation value label
-    if (deviation.deviationCm !== null) {
-      const midX = (plumbX + landmark.x) / 2;
-      const text = `${deviation.deviationCm > 0 ? '+' : ''}${deviation.deviationCm}cm`;
-
-      ctx.globalAlpha = 1;
-      ctx.font = 'bold 10px JetBrains Mono, monospace';
-      ctx.textAlign = 'center';
-
-      const metrics = ctx.measureText(text);
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.roundRect(midX - metrics.width / 2 - 4, landmark.y - 20, metrics.width + 8, 16, 3);
-      ctx.fill();
-
-      ctx.fillStyle = color;
-      ctx.fillText(text, midX, landmark.y - 8);
-    }
+    // Deviation value is now drawn by drawLandmark (attached to label)
 
     ctx.restore();
   }

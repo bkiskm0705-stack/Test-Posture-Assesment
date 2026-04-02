@@ -21,7 +21,6 @@
     selectedLandmark: null,
     isDragging: false,
     showPlumbLine: true,
-    showGrid: false,
     showInfoPanel: true,
     scaleFactor: null,
     drawState: null,
@@ -139,7 +138,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.51</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.52</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -331,11 +330,6 @@
     $('btn-toggle-plumb').addEventListener('click', () => {
       state.showPlumbLine = !state.showPlumbLine;
       $('btn-toggle-plumb').classList.toggle('active', state.showPlumbLine);
-      renderAnalysis();
-    });
-    $('btn-toggle-grid').addEventListener('click', () => {
-      state.showGrid = !state.showGrid;
-      $('btn-toggle-grid').classList.toggle('active', state.showGrid);
       renderAnalysis();
     });
     $('btn-toggle-info').addEventListener('click', () => {
@@ -753,13 +747,165 @@
       canvas.width = container.clientWidth;
       canvas.height = container.clientHeight;
       const ctx = canvas.getContext('2d');
-      AequumAnalysis.drawGrid(ctx, canvas.width, canvas.height, {
-        spacing: Math.min(canvas.width, canvas.height) / 8,
-        color: 'rgba(108, 99, 255, 0.15)',
-      });
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // ── Draw crosshair lines ──
+      const cx = w * 0.5;
+      const cy = h * 0.52; // slightly below center for body alignment
+
+      // Vertical dashed line
+      ctx.setLineDash([8, 6]);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cx, 0);
+      ctx.lineTo(cx, h);
+      ctx.stroke();
+
+      // Horizontal dashed line
+      ctx.beginPath();
+      ctx.moveTo(0, cy);
+      ctx.lineTo(w, cy);
+      ctx.stroke();
+
+      // Small teal circle at intersection
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00C9A7';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+
+      // ── Draw silhouette ──
+      const phase = state.capturePhase || 'sagittal';
+      const silH = h * 0.7;
+      const silW = silH * 0.3;
+      const silX = cx - silW / 2;
+      const silY = h * 0.1;
+
+      ctx.globalAlpha = 0.15;
+      ctx.fillStyle = '#B0BEC5';
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+
+      if (phase === 'posterior') {
+        drawPosteriorSilhouette(ctx, silX, silY, silW, silH);
+      } else {
+        drawSagittalSilhouette(ctx, silX, silY, silW, silH);
+      }
+
+      ctx.globalAlpha = 1.0;
     };
     resize();
     window.addEventListener('resize', resize);
+  }
+
+  // ── Posterior (front/back) silhouette ──
+  function drawPosteriorSilhouette(ctx, x, y, w, h) {
+    const cx = x + w / 2;
+    // Head
+    const headR = w * 0.22;
+    ctx.beginPath();
+    ctx.arc(cx, y + headR, headR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Neck
+    const neckTop = y + headR * 2;
+    const neckW = w * 0.18;
+    ctx.fillRect(cx - neckW / 2, neckTop, neckW, h * 0.04);
+    // Torso
+    const torsoTop = neckTop + h * 0.04;
+    const shoulderW = w * 0.95;
+    const waistW = w * 0.6;
+    const torsoH = h * 0.38;
+    ctx.beginPath();
+    ctx.moveTo(cx - shoulderW / 2, torsoTop);
+    ctx.lineTo(cx + shoulderW / 2, torsoTop);
+    ctx.lineTo(cx + waistW / 2, torsoTop + torsoH);
+    ctx.lineTo(cx - waistW / 2, torsoTop + torsoH);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Arms
+    const armW = w * 0.13;
+    const armH = h * 0.35;
+    ctx.beginPath();
+    ctx.roundRect(cx - shoulderW / 2 - armW, torsoTop + h * 0.01, armW, armH, [armW / 2]);
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.roundRect(cx + shoulderW / 2, torsoTop + h * 0.01, armW, armH, [armW / 2]);
+    ctx.fill(); ctx.stroke();
+    // Hips
+    const hipTop = torsoTop + torsoH;
+    const hipW = w * 0.65;
+    const hipH = h * 0.08;
+    ctx.beginPath();
+    ctx.ellipse(cx, hipTop + hipH / 2, hipW / 2, hipH / 2, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // Legs
+    const legTop = hipTop + hipH * 0.6;
+    const legW = w * 0.2;
+    const legH = h * 0.38;
+    const legGap = w * 0.06;
+    ctx.beginPath();
+    ctx.roundRect(cx - legGap - legW, legTop, legW, legH, [legW / 3]);
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.roundRect(cx + legGap, legTop, legW, legH, [legW / 3]);
+    ctx.fill(); ctx.stroke();
+  }
+
+  // ── Sagittal (side) silhouette ──
+  function drawSagittalSilhouette(ctx, x, y, w, h) {
+    const cx = x + w / 2;
+    // Head
+    const headR = w * 0.3;
+    ctx.beginPath();
+    ctx.arc(cx + w * 0.05, y + headR, headR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Neck
+    const neckTop = y + headR * 2;
+    const neckW = w * 0.2;
+    ctx.fillRect(cx - neckW / 2, neckTop, neckW, h * 0.04);
+    // Torso (slightly curved for side view)
+    const torsoTop = neckTop + h * 0.04;
+    const torsoW = w * 0.55;
+    const torsoH = h * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(cx - torsoW * 0.3, torsoTop);
+    ctx.quadraticCurveTo(cx + torsoW * 0.4, torsoTop + torsoH * 0.3, cx + torsoW * 0.3, torsoTop + torsoH * 0.6);
+    ctx.quadraticCurveTo(cx + torsoW * 0.2, torsoTop + torsoH, cx - torsoW * 0.1, torsoTop + torsoH);
+    ctx.quadraticCurveTo(cx - torsoW * 0.5, torsoTop + torsoH * 0.7, cx - torsoW * 0.4, torsoTop + torsoH * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Arm
+    const armW = w * 0.13;
+    const armH = h * 0.3;
+    ctx.beginPath();
+    ctx.roundRect(cx + torsoW * 0.1, torsoTop + h * 0.04, armW, armH, [armW / 2]);
+    ctx.fill(); ctx.stroke();
+    // Hips/buttocks
+    const hipTop = torsoTop + torsoH;
+    const hipW = w * 0.5;
+    const hipH = h * 0.1;
+    ctx.beginPath();
+    ctx.ellipse(cx, hipTop + hipH * 0.3, hipW / 2, hipH, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // Legs (single leg visible from side)
+    const legTop = hipTop + hipH * 0.8;
+    const legW = w * 0.22;
+    const legH = h * 0.38;
+    ctx.beginPath();
+    ctx.roundRect(cx - legW / 2, legTop, legW, legH, [legW / 3]);
+    ctx.fill(); ctx.stroke();
   }
 
   function initGyroscope() {
@@ -1221,6 +1367,8 @@
     let panStartX = 0, panStartY = 0;
     let pinchStartDist = null;
     let pinchStartZoom = 1;
+    let pinchStartCenter = null;
+    let pinchStartPanX = 0, pinchStartPanY = 0;
 
     // Convert screen pos to world (zoomed/panned) pos
     const screenToWorld = (sx, sy) => {
@@ -1343,6 +1491,9 @@
         e.preventDefault();
         pinchStartDist = getTouchDist(e);
         pinchStartZoom = state.viewZoom;
+        pinchStartCenter = getTouchCenter(e);
+        pinchStartPanX = state.viewPanX;
+        pinchStartPanY = state.viewPanY;
         isPanning = false;
         dragTarget = null;
         state.isDragging = false;
@@ -1368,15 +1519,25 @@
     }, { passive: false });
 
     canvas.addEventListener('touchmove', (e) => {
-      if (e.touches.length === 2 && pinchStartDist !== null) {
+      if (e.touches.length === 2 && pinchStartDist !== null && pinchStartDist > 0) {
         e.preventDefault();
         const center = getTouchCenter(e);
         const newDist = getTouchDist(e);
-        const oldZoom = state.viewZoom;
+        
+        // Calculate new zoom directly from initial pinch to avoid compounding float errors
         state.viewZoom = clampZoom(pinchStartZoom * (newDist / pinchStartDist));
 
-        state.viewPanX = center.x - (center.x - state.viewPanX) * (state.viewZoom / oldZoom);
-        state.viewPanY = center.y - (center.y - state.viewPanY) * (state.viewZoom / oldZoom);
+        // Pan to keep the starting center point anchored while accounting for finger movement
+        const zoomRatio = state.viewZoom / pinchStartZoom;
+        const panX_fromZoom = pinchStartCenter.x - (pinchStartCenter.x - pinchStartPanX) * zoomRatio;
+        const panY_fromZoom = pinchStartCenter.y - (pinchStartCenter.y - pinchStartPanY) * zoomRatio;
+        
+        const moveX = center.x - pinchStartCenter.x;
+        const moveY = center.y - pinchStartCenter.y;
+        
+        state.viewPanX = panX_fromZoom + moveX;
+        state.viewPanY = panY_fromZoom + moveY;
+        
         renderAnalysis();
       } else if (dragTarget && state.isDragging && e.touches.length === 1) {
         e.preventDefault();
@@ -1410,6 +1571,19 @@
     canvas.addEventListener('touchend', (e) => {
       if (e.touches.length < 2) {
         pinchStartDist = null;
+      }
+      if (e.touches.length === 1) {
+        // Just transitioned from 2 to 1 touch (e.g. lifted one finger after a pinch)
+        // Reset the touch anchor so that 1-finger panning doesn't jump based on an outdated touchStartPos.
+        const sp = getScreenPos(e);
+        touchStartPos = { x: sp.x, y: sp.y };
+        isPanning = false;
+        
+        // Ensure no landmark remains stuck dragging by accident
+        if (dragTarget) {
+          dragTarget = null;
+          state.isDragging = false;
+        }
       }
       if (e.touches.length === 0) {
         if (dragTarget) {
@@ -1450,11 +1624,6 @@
       ctx.drawImage(img, drawX, drawY, drawW, drawH);
     }
 
-    // Draw grid
-    if (state.showGrid) {
-      AequumAnalysis.drawGrid(ctx, width, height);
-    }
-
     // Draw plumb line
     if (state.showPlumbLine) {
       const plumbX = AequumAnalysis.getPlumbLineX(state.placedLandmarks, state.viewType);
@@ -1473,14 +1642,18 @@
     }
 
     // Draw landmarks
+    const allDeviations = state.showPlumbLine ?
+      AequumAnalysis.calculateDeviations(state.placedLandmarks, state.scaleFactor, state.facingDirection, state.viewType) : [];
     state.placedLandmarks.forEach(lm => {
       const isSelected = lm.id === state.selectedLandmark;
       const scale = state.viewZoom;
+      const dev = allDeviations.find(d => d.landmarkId === lm.id) || null;
       AequumAnalysis.drawLandmark(ctx, lm, {
         radius: isSelected ? 8 / scale : 6 / scale,
         showLabel: state.showOverlayInfo && !state.isDragging,
         selected: isSelected,
-        viewType: state.viewType
+        viewType: state.viewType,
+        deviation: dev
       });
     });
 
