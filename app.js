@@ -22,6 +22,7 @@
     isDragging: false,
     showPlumbLine: true,
     showInfoPanel: true,
+    moveMode: false,
     scaleFactor: null,
     drawState: null,
     // Zoom & Pan
@@ -153,7 +154,7 @@
             btnSet.addEventListener('click', async () => {
               const clients = await AequumDB.getAllClients();
               const select = $('select-delete-client');
-              select.innerHTML = '<option value="">患者を選択...</option>' + 
+              select.innerHTML = '<option value="">患者を選択...</option>' +
                 clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)} (No.${c.patientNo || '-'})</option>`).join('');
               $('modal-settings').style.display = '';
             });
@@ -221,7 +222,7 @@
         $$('#timeline-tabs .tab').forEach(t => t.classList.remove('active'));
         e.target.classList.add('active');
         state.timelineFilter = e.target.dataset.filter;
-        
+
         if (state.currentClient) {
           const sessions = await AequumDB.getSessionsByClient(state.currentClient.id);
           renderSessionTimeline(sessions);
@@ -237,7 +238,7 @@
         return;
       }
       const clientName = select.options[select.selectedIndex].text;
-      
+
       if (confirm(`本当に ${clientName} のデータをすべて削除しますか？\\n※この操作は取り消せません。`)) {
         try {
           const sessions = await AequumDB.getSessionsByClient(clientId);
@@ -245,7 +246,7 @@
             await AequumDB.deleteSession(s.id);
           }
           await AequumDB.deleteClient(clientId);
-          
+
           $('modal-settings').style.display = 'none';
           showToast(`${clientName} を削除しました`);
           if (state.currentPage === 'clients') loadClients();
@@ -271,7 +272,7 @@
     $('btn-daily-report').addEventListener('click', async () => {
       if (!state.currentClient) return;
       const sessions = await AequumDB.getSessionsByClient(state.currentClient.id);
-      
+
       // Group sessions by date
       const sessionsByDate = {};
       sessions.forEach(s => {
@@ -338,7 +339,11 @@
       const panel = $('landmark-info-panel');
       if (panel) panel.style.display = state.showInfoPanel ? '' : 'none';
     });
-    $('btn-add-landmark').addEventListener('click', showLandmarkPicker);
+    $('btn-move-landmark').addEventListener('click', () => {
+      state.moveMode = !state.moveMode;
+      $('btn-move-landmark').classList.toggle('active', state.moveMode);
+      renderAnalysis();
+    });
     $('btn-save-analysis').addEventListener('click', handleSaveAnalysis);
 
     // Compare tabs
@@ -349,8 +354,8 @@
         const mode = tab.dataset.mode;
         $$('.compare-view').forEach(v => v.classList.remove('active'));
         const target = mode === 'side-by-side' ? $('compare-side') :
-                       mode === 'onion-skin' ? $('compare-onion') :
-                       $('compare-trend');
+          mode === 'onion-skin' ? $('compare-onion') :
+            $('compare-trend');
         if (target) target.classList.add('active');
         if (mode === 'trend') renderTrendChart();
       });
@@ -551,8 +556,8 @@
     const initials = client.name.slice(0, 2);
     const age = client.dateOfBirth ? calculateAge(client.dateOfBirth) : null;
     const genderLabel = client.gender === 'male' ? '男性' :
-                        client.gender === 'female' ? '女性' :
-                        client.gender === 'other' ? 'その他' : '—';
+      client.gender === 'female' ? '女性' :
+        client.gender === 'other' ? 'その他' : '—';
 
     profile.innerHTML = `
       <div class="profile-header">
@@ -594,7 +599,7 @@
     if (filteredSessions.length === 0) {
       timeline.innerHTML = '';
       empty.style.display = '';
-      empty.innerHTML = sessions.length === 0 
+      empty.innerHTML = sessions.length === 0
         ? '<p>まだ評価がありません</p><p class="sub">「新規評価」から初回の撮影を行いましょう</p>'
         : '<p style="color:var(--text-muted); font-size:0.9rem;">該当する評価がありません</p>';
       return;
@@ -678,7 +683,7 @@
 
       cleanupResources();
       showToast('画像を読み込みました');
-      
+
       // Reset input value to allow selecting the same file again if needed
       e.target.value = '';
 
@@ -789,10 +794,12 @@
       const silX = cx - silW / 2;
       const silY = h * 0.1;
 
-      ctx.globalAlpha = 0.15;
-      ctx.fillStyle = '#B0BEC5';
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-      ctx.lineWidth = 1;
+      // Make the silhouette and its outline much clearer
+      ctx.globalAlpha = 1.0;
+      ctx.fillStyle = 'rgba(176, 190, 197, 0.25)'; // slightly brighter fill
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'; // distinct white outline
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 2; // thicker line
 
       if (phase === 'posterior') {
         drawPosteriorSilhouette(ctx, silX, silY, silW, silH);
@@ -818,7 +825,9 @@
     // Neck
     const neckTop = y + headR * 2;
     const neckW = w * 0.18;
-    ctx.fillRect(cx - neckW / 2, neckTop, neckW, h * 0.04);
+    ctx.beginPath();
+    ctx.rect(cx - neckW / 2, neckTop, neckW, h * 0.04);
+    ctx.fill(); ctx.stroke();
     // Torso
     const torsoTop = neckTop + h * 0.04;
     const shoulderW = w * 0.95;
@@ -873,7 +882,9 @@
     // Neck
     const neckTop = y + headR * 2;
     const neckW = w * 0.2;
-    ctx.fillRect(cx - neckW / 2, neckTop, neckW, h * 0.04);
+    ctx.beginPath();
+    ctx.rect(cx - neckW / 2, neckTop, neckW, h * 0.04);
+    ctx.fill(); ctx.stroke();
     // Torso (slightly curved for side view)
     const torsoTop = neckTop + h * 0.04;
     const torsoW = w * 0.55;
@@ -1068,9 +1079,11 @@
     showToast('AIモデルを読み込み中...', 'info');
     return new Promise((resolve, reject) => {
       try {
-        const pose = new window.Pose({locateFile: (file) => {
-          return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
-        }});
+        const pose = new window.Pose({
+          locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+          }
+        });
         pose.setOptions({
           modelComplexity: 1,
           smoothLandmarks: false,
@@ -1082,7 +1095,7 @@
 
         pose.onResults(onPoseResults);
         poseDetector = pose;
-        
+
         resolve(pose);
       } catch (err) {
         console.error('MediaPipe initialization failed:', err);
@@ -1097,13 +1110,13 @@
 
     try {
       showToast('姿勢を解析中...', 'info');
-      
+
       const pose = await initPoseDetector();
-      
+
       // Some browsers require sending an canvas instead of image element for pose if CORS or natural dims are weird.
       // But standard Image works identically in MP.
-      await pose.send({image: img});
-      
+      await pose.send({ image: img });
+
     } catch (err) {
       console.error(err);
       showToast('自動判定に失敗しました', 'error');
@@ -1116,7 +1129,7 @@
       return;
     }
 
-    const mps = results.poseLandmarks; 
+    const mps = results.poseLandmarks;
     const canvas = $('analyze-canvas');
     if (!canvas || !state.analyzeImage) return;
 
@@ -1165,13 +1178,13 @@
         { id: 'heel_right', name: '右踵', x: heelRight.x, y: heelRight.y },
         { id: 'popliteal_left', name: '左膝窩', x: kneeLeft.x, y: kneeLeft.y },
         { id: 'popliteal_right', name: '右膝窩', x: kneeRight.x, y: kneeRight.y },
-        { id: 'psis_left', name: '左PSIS', x: hipLeft.x, y: hipLeft.y - (hipLeft.y - shoulderLeft.y)*0.1 }, 
-        { id: 'psis_right', name: '右PSIS', x: hipRight.x, y: hipRight.y - (hipRight.y - shoulderRight.y)*0.1 },
+        { id: 'psis_left', name: '左PSIS', x: hipLeft.x, y: hipLeft.y - (hipLeft.y - shoulderLeft.y) * 0.1 },
+        { id: 'psis_right', name: '右PSIS', x: hipRight.x, y: hipRight.y - (hipRight.y - shoulderRight.y) * 0.1 },
         { id: 'acromion_left', name: '左肩峰', x: shoulderLeft.x, y: shoulderLeft.y },
         { id: 'acromion_right', name: '右肩峰', x: shoulderRight.x, y: shoulderRight.y },
-        { id: 'earlobe_left', name: '左耳垂', x: earLeft.x, y: earLeft.y + (shoulderLeft.y - earLeft.y)*0.1 },
-        { id: 'earlobe_right', name: '右耳垂', x: earRight.x, y: earRight.y + (shoulderRight.y - earRight.y)*0.1 },
-      ].map(lm => ({...lm, isAutoDetected: true, isManuallyAdjusted: false}));
+        { id: 'earlobe_left', name: '左耳垂', x: earLeft.x, y: earLeft.y + (shoulderLeft.y - earLeft.y) * 0.1 },
+        { id: 'earlobe_right', name: '右耳垂', x: earRight.x, y: earRight.y + (shoulderRight.y - earRight.y) * 0.1 },
+      ].map(lm => ({ ...lm, isAutoDetected: true, isManuallyAdjusted: false }));
 
     } else {
       const mEar = toCanvas(mps[useLeft ? 7 : 8]);
@@ -1180,22 +1193,22 @@
       const mKnee = toCanvas(mps[useLeft ? 25 : 26]);
       const mAnkle = toCanvas(mps[useLeft ? 27 : 28]);
       const mToe = toCanvas(mps[useLeft ? 31 : 32]); // foot index (toe)
-  
+
       // Estimate forward direction using toe
       const forwardX = Math.sign(mToe.x - mAnkle.x) || 1;
       const mEarlobe = { x: mEar.x, y: mEar.y + (mShoulder.y - mEar.y) * 0.1 };
       const mKneeForward = { x: mKnee.x + forwardX * (Math.abs(mToe.x - mAnkle.x) * 0.15), y: mKnee.y };
       const mAnkleForward = { x: mAnkle.x + forwardX * (Math.abs(mToe.x - mAnkle.x) * 0.35), y: mAnkle.y };
-  
+
       state.facingDirection = forwardX;
-  
+
       state.placedLandmarks = [
         { id: 'ankle_forward', name: '外果前方', x: mAnkleForward.x, y: mAnkleForward.y },
         { id: 'knee_forward', name: '膝関節', x: mKneeForward.x, y: mKneeForward.y },
         { id: 'greater_trochanter', name: '大転子', x: mHip.x, y: mHip.y },
         { id: 'acromion', name: '肩峰', x: mShoulder.x, y: mShoulder.y },
         { id: 'earlobe', name: '耳垂', x: mEarlobe.x, y: mEarlobe.y }
-      ].map(lm => ({...lm, isAutoDetected: true, isManuallyAdjusted: false}));
+      ].map(lm => ({ ...lm, isAutoDetected: true, isManuallyAdjusted: false }));
     }
 
     recalculateDeviations();
@@ -1209,7 +1222,7 @@
   async function initAnalyze(data) {
     const canvas = $('analyze-canvas');
     const container = $('analyze-container');
-    
+
     // Hide info panel by default
     state.showInfoPanel = false;
     $('btn-toggle-info').classList.remove('active');
@@ -1220,7 +1233,7 @@
     state.isReadOnly = (data.mode === 'view');
     $('btn-auto-detect').style.display = state.isReadOnly ? 'none' : '';
     $('btn-toggle-info').style.display = state.isReadOnly ? 'none' : '';
-    $('btn-add-landmark').style.display = state.isReadOnly ? 'none' : '';
+    $('btn-move-landmark').style.display = state.isReadOnly ? 'none' : '';
     $('btn-save-analysis').style.display = state.isReadOnly ? 'none' : '';
 
     let imageBlob;
@@ -1361,6 +1374,28 @@
     }
   }
 
+  function getHandleOffset(landmarkId, scale, viewType) {
+    const offsetScreen = 60;
+    let sign = 1;
+    if (viewType === 'posterior' && landmarkId.includes('_left')) sign = -1;
+    return {
+      dx: (offsetScreen * sign) / scale,
+      dy: -offsetScreen / scale
+    };
+  }
+
+  function updateBaseCenter() {
+    if (state.viewType === 'posterior') {
+      const baseCenter = state.placedLandmarks.find(l => l.id === 'base_center');
+      const heelLeft = state.placedLandmarks.find(l => l.id === 'heel_left');
+      const heelRight = state.placedLandmarks.find(l => l.id === 'heel_right');
+      if (baseCenter && heelLeft && heelRight) {
+        baseCenter.x = (heelLeft.x + heelRight.x) / 2;
+        baseCenter.y = (heelLeft.y + heelRight.y) / 2;
+      }
+    }
+  }
+
   function setupCanvasInteraction(canvas) {
     let dragTarget = null;
     let isPanning = false;
@@ -1405,15 +1440,20 @@
     };
 
     const findNearLandmark = (worldPos, threshold = 20) => {
+      if (!state.moveMode) return undefined;
       const t = threshold / state.viewZoom;
       return state.placedLandmarks.find(l => {
-        const dx = l.x - worldPos.x;
-        const dy = l.y - worldPos.y;
+        if (l.id === 'base_center') return false;
+        const offsetD = getHandleOffset(l.id, state.viewZoom, state.viewType);
+        const hx = l.x + offsetD.dx;
+        const hy = l.y + offsetD.dy;
+        const dx = hx - worldPos.x;
+        const dy = hy - worldPos.y;
         return Math.sqrt(dx * dx + dy * dy) < t;
       });
     };
 
-    const clampZoom = (z) => Math.max(0.5, Math.min(5, z));
+    const clampZoom = (z) => Math.max(0.5, Math.min(1.5, z));
 
     // ── Mouse wheel zoom ──
     canvas.addEventListener('wheel', (e) => {
@@ -1457,9 +1497,11 @@
         e.preventDefault();
         const sp = getScreenPos(e);
         const wp = screenToWorld(sp.x, sp.y);
-        dragTarget.x = wp.x;
-        dragTarget.y = wp.y;
+        const offsetD = getHandleOffset(dragTarget.id, state.viewZoom, state.viewType);
+        dragTarget.x = wp.x - offsetD.dx;
+        dragTarget.y = wp.y - offsetD.dy;
         dragTarget.isManuallyAdjusted = true;
+        updateBaseCenter();
         renderAnalysis();
       } else if (isPanning) {
         const sp = getScreenPos(e);
@@ -1523,7 +1565,7 @@
         e.preventDefault();
         const center = getTouchCenter(e);
         const newDist = getTouchDist(e);
-        
+
         // Calculate new zoom directly from initial pinch to avoid compounding float errors
         state.viewZoom = clampZoom(pinchStartZoom * (newDist / pinchStartDist));
 
@@ -1531,21 +1573,23 @@
         const zoomRatio = state.viewZoom / pinchStartZoom;
         const panX_fromZoom = pinchStartCenter.x - (pinchStartCenter.x - pinchStartPanX) * zoomRatio;
         const panY_fromZoom = pinchStartCenter.y - (pinchStartCenter.y - pinchStartPanY) * zoomRatio;
-        
+
         const moveX = center.x - pinchStartCenter.x;
         const moveY = center.y - pinchStartCenter.y;
-        
+
         state.viewPanX = panX_fromZoom + moveX;
         state.viewPanY = panY_fromZoom + moveY;
-        
+
         renderAnalysis();
       } else if (dragTarget && state.isDragging && e.touches.length === 1) {
         e.preventDefault();
         const sp = getScreenPos(e);
         const wp = screenToWorld(sp.x, sp.y);
-        dragTarget.x = wp.x;
-        dragTarget.y = wp.y;
+        const offsetD = getHandleOffset(dragTarget.id, state.viewZoom, state.viewType);
+        dragTarget.x = wp.x - offsetD.dx;
+        dragTarget.y = wp.y - offsetD.dy;
         dragTarget.isManuallyAdjusted = true;
+        updateBaseCenter();
         renderAnalysis();
       } else if (e.touches.length === 1) {
         e.preventDefault();
@@ -1578,7 +1622,7 @@
         const sp = getScreenPos(e);
         touchStartPos = { x: sp.x, y: sp.y };
         isPanning = false;
-        
+
         // Ensure no landmark remains stuck dragging by accident
         if (dragTarget) {
           dragTarget = null;
@@ -1655,6 +1699,67 @@
         viewType: state.viewType,
         deviation: dev
       });
+
+      if (state.moveMode && !state.isReadOnly && lm.id !== 'base_center') {
+        const offsetD = getHandleOffset(lm.id, scale, state.viewType);
+        const hx = lm.x + offsetD.dx;
+        const hy = lm.y + offsetD.dy;
+
+        const defs = AequumAnalysis.getLandmarks(state.viewType);
+        const lmDef = defs.find(d => d.id === lm.id);
+        const color = lmDef ? lmDef.color : '#6C63FF';
+
+        ctx.beginPath();
+        ctx.moveTo(lm.x, lm.y);
+        ctx.lineTo(hx, hy);
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = color;
+        ctx.setLineDash([4 / scale, 4 / scale]);
+        ctx.lineWidth = 1.5 / scale;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1.0;
+
+        // Draw 4-way move arrow
+        const size = 12 / scale;
+        const as = size * 0.4;
+
+        ctx.save();
+        ctx.translate(hx, hy);
+
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        const drawArrowPath = () => {
+          ctx.beginPath();
+          ctx.moveTo(-size, 0); ctx.lineTo(size, 0); // H
+          ctx.moveTo(0, -size); ctx.lineTo(0, size); // V
+          ctx.moveTo(size - as, -as); ctx.lineTo(size, 0); ctx.lineTo(size - as, as); // Right
+          ctx.moveTo(-size + as, -as); ctx.lineTo(-size, 0); ctx.lineTo(-size + as, as); // Left
+          ctx.moveTo(-as, size - as); ctx.lineTo(0, size); ctx.lineTo(as, size - as); // Down
+          ctx.moveTo(-as, -size + as); ctx.lineTo(0, -size); ctx.lineTo(as, -size + as); // Up
+        };
+
+        // Add white outline for visibility
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 4 / scale;
+        drawArrowPath();
+        ctx.stroke();
+
+        // Inner color
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2 / scale;
+        drawArrowPath();
+        ctx.stroke();
+
+        // Center dot
+        ctx.beginPath();
+        ctx.arc(0, 0, 3 / scale, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        ctx.restore();
+      }
     });
 
     // Restore transform
@@ -1677,11 +1782,11 @@
 
     list.innerHTML = deviations.map(d => {
       const color = d.status === 'ok' ? 'var(--deviation-ok)' :
-                    d.status === 'warn' ? 'var(--deviation-warn)' :
-                    d.status === 'alert' ? 'var(--deviation-alert)' : 'var(--text-muted)';
+        d.status === 'warn' ? 'var(--deviation-warn)' :
+          d.status === 'alert' ? 'var(--deviation-alert)' : 'var(--text-muted)';
       const bgColor = d.status === 'ok' ? 'rgba(0,217,166,0.15)' :
-                      d.status === 'warn' ? 'rgba(255,217,61,0.15)' :
-                      d.status === 'alert' ? 'rgba(255,107,107,0.15)' : 'rgba(255,255,255,0.05)';
+        d.status === 'warn' ? 'rgba(255,217,61,0.15)' :
+          d.status === 'alert' ? 'rgba(255,107,107,0.15)' : 'rgba(255,255,255,0.05)';
       const sign = d.deviationCm && d.deviationCm > 0 ? '+' : '';
 
       return `
@@ -1822,7 +1927,7 @@
 
         // Force resize to set draw state
         window.dispatchEvent(new Event('resize'));
-        
+
         setTimeout(runAutoDetection, 100);
       };
       img.src = url;
@@ -1842,7 +1947,7 @@
           facingDirection: state.sagittalData.facingDirection,
           viewType: 'sagittal',
         });
-        
+
         // Posterior
         const sessionPos = await AequumDB.createSession({
           clientId: state.currentSession.clientId,
@@ -2097,7 +2202,7 @@
   // ──────────────────────────────────────────────────────
   async function initReport(data) {
     state.reportMode = data && data.mode === 'daily' ? 'daily' : 'single';
-    
+
     if (state.reportMode === 'daily') {
       const { clientId, date: dateStr } = data;
       const client = await AequumDB.getClient(clientId);
@@ -2155,11 +2260,11 @@
         </thead>
         <tbody>
           ${deviations.map(d => {
-            const color = d.status === 'ok' ? 'var(--deviation-ok)' :
-                          d.status === 'warn' ? 'var(--deviation-warn)' : 'var(--deviation-alert)';
-            const sign = d.deviationCm > 0 ? '+' : '';
-            const label = d.status === 'ok' ? '○ 許容範囲' : d.status === 'warn' ? '△ 要注意' : '× 逸脱あり';
-            return `
+      const color = d.status === 'ok' ? 'var(--deviation-ok)' :
+        d.status === 'warn' ? 'var(--deviation-warn)' : 'var(--deviation-alert)';
+      const sign = d.deviationCm > 0 ? '+' : '';
+      const label = d.status === 'ok' ? '○ 許容範囲' : d.status === 'warn' ? '△ 要注意' : '× 逸脱あり';
+      return `
               <tr>
                 <td>${d.landmarkName}</td>
                 <td style="text-align:center; color:${color}; font-weight:600;">
@@ -2168,7 +2273,7 @@
                 <td style="text-align:center; color:${color};">${label}</td>
               </tr>
             `;
-          }).join('')}
+    }).join('')}
           ${deviations.length === 0 ? '<tr><td colspan="3" style="text-align:center; color:var(--text-muted);">データなし</td></tr>' : ''}
         </tbody>
       </table>
