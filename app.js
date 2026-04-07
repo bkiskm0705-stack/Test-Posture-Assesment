@@ -139,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.52</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.53</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -187,7 +187,7 @@
         break;
       default:
         back.style.display = '';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.2</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.53</span>';
     }
   }
 
@@ -963,7 +963,9 @@
   function handleOrientation(event) {
     state._gyroReceived = true;
     const bubble = $('level-bubble');
+    const dot = $('level-dot');
     const valueEl = $('level-value');
+    const statusEl = $('level-status');
     const captureBtn = $('btn-capture');
 
     // beta: front-back tilt (-180 to 180)
@@ -972,28 +974,43 @@
     const gamma = event.gamma || 0;
 
     // Deviation from vertical (90° = phone is perfectly upright)
-    const pitchDev = Math.abs(beta - 90);
-    const rollDev = Math.abs(gamma);
+    const pitchDev = beta - 90;
+    const rollDev = gamma;
     const totalDev = Math.sqrt(pitchDev * pitchDev + rollDev * rollDev);
-    const isLevel = totalDev <= 1.0; // ±1° strict mode
+    const isLevel = totalDev <= 3.0; // ±3° tolerance
+    const isNearLevel = totalDev <= 5.0; // ±5° "almost there"
 
-    // Update UI
+    // Update degree display
     valueEl.textContent = `${totalDev.toFixed(1)}°`;
+
+    // Update bubble state
     bubble.classList.toggle('level-ok', isLevel);
 
-    // Move bubble indicator
-    const maxOffset = 16;
-    const offsetX = Math.max(-maxOffset, Math.min(maxOffset, gamma * 1.5));
-    const offsetY = Math.max(-maxOffset, Math.min(maxOffset, (beta - 90) * 1.5));
-    bubble.style.setProperty('--offset-x', `${offsetX}px`);
-    bubble.style.setProperty('--offset-y', `${offsetY}px`);
+    // Move the dot inside the bubble
+    const bubbleR = 20; // max movement radius in px
+    const clampedX = Math.max(-bubbleR, Math.min(bubbleR, rollDev * 2));
+    const clampedY = Math.max(-bubbleR, Math.min(bubbleR, pitchDev * 2));
+    dot.style.transform = `translate(calc(-50% + ${clampedX}px), calc(-50% + ${clampedY}px))`;
 
-    const inner = bubble.querySelector('::after') || bubble;
-    if (bubble.style) {
-      bubble.style.setProperty('transform', `translate(${offsetX}px, ${offsetY}px)`);
+    // Update status text
+    if (isLevel) {
+      statusEl.textContent = '水平 ✓';
+      statusEl.className = 'level-ok';
+    } else if (isNearLevel) {
+      statusEl.textContent = 'あと少し…';
+      statusEl.className = '';
+    } else {
+      // Show directional hint
+      const hints = [];
+      if (pitchDev > 3) hints.push('下げて');
+      if (pitchDev < -3) hints.push('上げて');
+      if (rollDev > 3) hints.push('左へ');
+      if (rollDev < -3) hints.push('右へ');
+      statusEl.textContent = hints.length > 0 ? hints.join(' / ') : '傾いています';
+      statusEl.className = '';
     }
 
-    // Enable capture only when level (strict mode)
+    // Enable capture only when level
     captureBtn.disabled = !isLevel;
   }
 
