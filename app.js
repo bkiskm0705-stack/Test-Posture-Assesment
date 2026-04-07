@@ -139,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.53</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.54</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -187,7 +187,7 @@
         break;
       default:
         back.style.display = '';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.53</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.54</span>';
     }
   }
 
@@ -202,6 +202,10 @@
       window.removeEventListener('deviceorientation', handleOrientation);
       state.gyroWatcher = null;
     }
+    // Reset grid/level state
+    state._gridResizeBound = false;
+    state._levelState = 'unknown';
+    state._gyroReceived = false;
   }
 
   // ── Global Events ───────────────────────────────────
@@ -748,7 +752,7 @@
     const container = $('camera-container');
     if (!canvas || !container) return;
 
-    const resize = () => {
+    const draw = () => {
       canvas.width = container.clientWidth;
       canvas.height = container.clientHeight;
       const ctx = canvas.getContext('2d');
@@ -775,16 +779,50 @@
       ctx.lineTo(w, cy);
       ctx.stroke();
 
-      // Small teal circle at intersection
+      // Center crosshair circle — color changes based on level state
+      const levelState = state._levelState || 'unknown';
+      let circleColor, dotColor, circleGlow;
+      switch (levelState) {
+        case 'ok':
+          circleColor = '#00C9A7';
+          dotColor = '#00C9A7';
+          circleGlow = 'rgba(0, 201, 167, 0.4)';
+          break;
+        case 'near':
+          circleColor = '#F59E0B';
+          dotColor = '#F59E0B';
+          circleGlow = 'rgba(245, 158, 11, 0.3)';
+          break;
+        case 'off':
+          circleColor = '#EF4444';
+          dotColor = '#EF4444';
+          circleGlow = 'rgba(239, 68, 68, 0.3)';
+          break;
+        default:
+          circleColor = '#00C9A7';
+          dotColor = '#fff';
+          circleGlow = 'none';
+      }
+
       ctx.setLineDash([]);
+
+      if (circleGlow !== 'none') {
+        ctx.beginPath();
+        ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+        ctx.strokeStyle = circleGlow;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      }
+
       ctx.beginPath();
       ctx.arc(cx, cy, 8, 0, Math.PI * 2);
-      ctx.strokeStyle = '#00C9A7';
+      ctx.strokeStyle = circleColor;
       ctx.lineWidth = 2;
       ctx.stroke();
+
       ctx.beginPath();
       ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = dotColor;
       ctx.fill();
 
       // ── Draw silhouette ──
@@ -794,12 +832,11 @@
       const silX = cx - silW / 2;
       const silY = h * 0.1;
 
-      // Make the silhouette and its outline much clearer
       ctx.globalAlpha = 1.0;
-      ctx.fillStyle = 'rgba(176, 190, 197, 0.25)'; // slightly brighter fill
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'; // distinct white outline
+      ctx.fillStyle = 'rgba(176, 190, 197, 0.25)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
       ctx.lineJoin = 'round';
-      ctx.lineWidth = 2; // thicker line
+      ctx.lineWidth = 2;
 
       if (phase === 'posterior') {
         drawPosteriorSilhouette(ctx, silX, silY, silW, silH);
@@ -809,8 +846,14 @@
 
       ctx.globalAlpha = 1.0;
     };
-    resize();
-    window.addEventListener('resize', resize);
+
+    draw();
+
+    // Only bind resize listener once
+    if (!state._gridResizeBound) {
+      state._gridResizeBound = true;
+      window.addEventListener('resize', draw);
+    }
   }
 
   // ── Posterior (front/back) silhouette ──
@@ -920,87 +963,126 @@
   }
 
   function initGyroscope() {
-    const bubble = $('level-bubble');
     const valueEl = $('level-value');
+    const statusEl = $('level-status');
     const captureBtn = $('btn-capture');
+    const indicator = $('level-indicator');
+
+    // Reset state
+    state._gyroReceived = false;
+    state._levelState = 'unknown'; // 'ok', 'near', 'off', 'unknown', 'na'
 
     // Check if DeviceOrientationEvent is available
     if (!window.DeviceOrientationEvent) {
-      // Desktop fallback — enable capture button
       captureBtn.disabled = false;
-      valueEl.textContent = 'N/A';
+      valueEl.textContent = '—';
+      statusEl.textContent = 'センサーなし';
+      statusEl.className = 'level-na';
+      state._levelState = 'na';
       return;
     }
 
     // Request permission (iOS 13+)
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      // iOS requires requestPermission to be called from a user gesture.
+      // Try it now first (sometimes the gesture context from button click propagates).
       DeviceOrientationEvent.requestPermission()
         .then(response => {
           if (response === 'granted') {
             window.addEventListener('deviceorientation', handleOrientation);
             state.gyroWatcher = true;
           } else {
-            captureBtn.disabled = false;
+            enableWithoutGyro(valueEl, statusEl, captureBtn);
           }
         })
         .catch(() => {
-          captureBtn.disabled = false;
+          // Permission request failed (not in user gesture context).
+          // Show a tappable prompt to request permission.
+          indicator.style.pointerEvents = 'auto';
+          indicator.style.cursor = 'pointer';
+          statusEl.textContent = 'タップして有効化';
+          statusEl.className = 'level-na';
+          valueEl.textContent = '—';
+
+          const requestOnTap = () => {
+            DeviceOrientationEvent.requestPermission()
+              .then(response => {
+                indicator.style.pointerEvents = 'none';
+                indicator.style.cursor = '';
+                indicator.removeEventListener('click', requestOnTap);
+                if (response === 'granted') {
+                  window.addEventListener('deviceorientation', handleOrientation);
+                  state.gyroWatcher = true;
+                  statusEl.textContent = '計測中...';
+                  statusEl.className = '';
+                } else {
+                  enableWithoutGyro(valueEl, statusEl, captureBtn);
+                }
+              })
+              .catch(() => {
+                enableWithoutGyro(valueEl, statusEl, captureBtn);
+              });
+          };
+          indicator.addEventListener('click', requestOnTap);
+
+          // Also enable capture after timeout so user isn't stuck
+          setTimeout(() => {
+            if (!state._gyroReceived) {
+              captureBtn.disabled = false;
+            }
+          }, 3000);
         });
     } else {
+      // Android & Desktop
       window.addEventListener('deviceorientation', handleOrientation);
       state.gyroWatcher = true;
 
-      // Desktop fallback timeout
+      // Fallback if no events fire (desktop, or sensor not available)
       setTimeout(() => {
         if (state.gyroWatcher && !state._gyroReceived) {
-          captureBtn.disabled = false;
-          valueEl.textContent = 'N/A';
+          enableWithoutGyro(valueEl, statusEl, captureBtn);
         }
-      }, 1000);
+      }, 1500);
     }
+  }
+
+  function enableWithoutGyro(valueEl, statusEl, captureBtn) {
+    captureBtn.disabled = false;
+    valueEl.textContent = '—';
+    statusEl.textContent = 'センサーなし';
+    statusEl.className = 'level-na';
+    state._levelState = 'na';
+    // Redraw crosshair to reflect N/A state
+    drawCameraGrid();
   }
 
   function handleOrientation(event) {
     state._gyroReceived = true;
-    const bubble = $('level-bubble');
-    const dot = $('level-dot');
     const valueEl = $('level-value');
     const statusEl = $('level-status');
     const captureBtn = $('btn-capture');
 
-    // beta: front-back tilt (-180 to 180)
-    // gamma: left-right tilt (-90 to 90)
     const beta = event.beta || 0;
     const gamma = event.gamma || 0;
 
-    // Deviation from vertical (90° = phone is perfectly upright)
     const pitchDev = beta - 90;
     const rollDev = gamma;
     const totalDev = Math.sqrt(pitchDev * pitchDev + rollDev * rollDev);
-    const isLevel = totalDev <= 3.0; // ±3° tolerance
-    const isNearLevel = totalDev <= 5.0; // ±5° "almost there"
+    const isLevel = totalDev <= 3.0;
+    const isNearLevel = totalDev <= 5.0;
 
-    // Update degree display
     valueEl.textContent = `${totalDev.toFixed(1)}°`;
 
-    // Update bubble state
-    bubble.classList.toggle('level-ok', isLevel);
-
-    // Move the dot inside the bubble
-    const bubbleR = 20; // max movement radius in px
-    const clampedX = Math.max(-bubbleR, Math.min(bubbleR, rollDev * 2));
-    const clampedY = Math.max(-bubbleR, Math.min(bubbleR, pitchDev * 2));
-    dot.style.transform = `translate(calc(-50% + ${clampedX}px), calc(-50% + ${clampedY}px))`;
-
-    // Update status text
+    const prevState = state._levelState;
     if (isLevel) {
       statusEl.textContent = '水平 ✓';
       statusEl.className = 'level-ok';
+      state._levelState = 'ok';
     } else if (isNearLevel) {
       statusEl.textContent = 'あと少し…';
       statusEl.className = '';
+      state._levelState = 'near';
     } else {
-      // Show directional hint
       const hints = [];
       if (pitchDev > 3) hints.push('下げて');
       if (pitchDev < -3) hints.push('上げて');
@@ -1008,10 +1090,15 @@
       if (rollDev < -3) hints.push('右へ');
       statusEl.textContent = hints.length > 0 ? hints.join(' / ') : '傾いています';
       statusEl.className = '';
+      state._levelState = 'off';
     }
 
-    // Enable capture only when level
     captureBtn.disabled = !isLevel;
+
+    // Only redraw crosshair when level state category changes
+    if (prevState !== state._levelState) {
+      drawCameraGrid();
+    }
   }
 
   async function handleCapture() {
