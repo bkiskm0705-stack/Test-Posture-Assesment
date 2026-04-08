@@ -139,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.54</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.55</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -187,7 +187,7 @@
         break;
       default:
         back.style.display = '';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.54</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.55</span>';
     }
   }
 
@@ -1062,16 +1062,28 @@
     const statusEl = $('level-status');
     const captureBtn = $('btn-capture');
 
+    // 左右方向（roll）は無視し、上下方向（pitch）の水平のみを判定する
     const beta = event.beta || 0;
-    const gamma = event.gamma || 0;
+    
+    // 画面の向きを取得して、縦持ち・横持ちに応じて使用するセンサー値を調整
+    const angle = (window.screen && window.screen.orientation ? window.screen.orientation.angle : window.orientation) || 0;
+    let pitchDev;
 
-    const pitchDev = beta - 90;
-    const rollDev = gamma;
-    const totalDev = Math.sqrt(pitchDev * pitchDev + rollDev * rollDev);
-    const isLevel = totalDev <= 3.0;
-    const isNearLevel = totalDev <= 5.0;
+    if (Math.abs(angle) === 90 || angle === 270) {
+      // 横持ちの場合、規定の仕様上gammaが垂直の傾きを示す
+      const gamma = event.gamma || 0;
+      pitchDev = Math.abs(gamma) - 90;
+    } else {
+      // 縦持ちの場合、betaが垂直の傾きを示す (-90 を基準とする)
+      pitchDev = Math.abs(beta) - 90;
+    }
 
-    valueEl.textContent = `${totalDev.toFixed(1)}°`;
+    const absPitch = Math.abs(pitchDev);
+    const isLevel = absPitch <= 3.0;
+    const isNearLevel = absPitch <= 5.0;
+
+    // 角度は上下のズレのみを表示
+    valueEl.textContent = `${absPitch.toFixed(1)}°`;
 
     const prevState = state._levelState;
     if (isLevel) {
@@ -1083,12 +1095,8 @@
       statusEl.className = '';
       state._levelState = 'near';
     } else {
-      const hints = [];
-      if (pitchDev > 3) hints.push('下げて');
-      if (pitchDev < -3) hints.push('上げて');
-      if (rollDev > 3) hints.push('左へ');
-      if (rollDev < -3) hints.push('右へ');
-      statusEl.textContent = hints.length > 0 ? hints.join(' / ') : '傾いています';
+      // 左右のヒントは出さず、上下のみのガイドにする
+      statusEl.textContent = pitchDev > 0 ? '下げて' : '上げて';
       statusEl.className = '';
       state._levelState = 'off';
     }
