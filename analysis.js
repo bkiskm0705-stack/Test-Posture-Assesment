@@ -271,7 +271,7 @@ const AequumAnalysis = (() => {
     ctx.fill();
 
     // Label
-    if (showLabel && def) {
+    if (showLabel && def && landmark.id !== 'base_center') {
       ctx.globalAlpha = 1;
       ctx.font = '11px Inter, sans-serif';
       ctx.fillStyle = '#ffffff';
