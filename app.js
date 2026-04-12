@@ -139,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.60</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.61</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -187,7 +187,7 @@
         break;
       default:
         back.style.display = '';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.60</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.61</span>';
     }
   }
 
@@ -986,68 +986,46 @@
       return;
     }
 
-    // Request permission (iOS 13+)
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-      // iOS requires requestPermission to be called from a user gesture.
-      // Try it now first (sometimes the gesture context from button click propagates).
-      DeviceOrientationEvent.requestPermission()
-        .then(response => {
-          if (response === 'granted') {
-            window.addEventListener('deviceorientation', handleOrientation);
-            state.gyroWatcher = true;
-          } else {
-            enableWithoutGyro(valueEl, statusEl, captureBtn);
-          }
-        })
-        .catch(() => {
-          // Permission request failed (not in user gesture context).
-          // Show a tappable prompt to request permission.
-          indicator.style.pointerEvents = 'auto';
-          indicator.style.cursor = 'pointer';
-          statusEl.textContent = 'タップして有効化';
-          statusEl.className = 'level-na';
-          valueEl.textContent = '—';
+    // 事前に許可されていればそのままイベントが発火するため、まずはリスナーを登録する
+    window.addEventListener('deviceorientation', handleOrientation);
+    state.gyroWatcher = true;
 
-          const requestOnTap = () => {
-            DeviceOrientationEvent.requestPermission()
-              .then(response => {
-                indicator.style.pointerEvents = 'none';
-                indicator.style.cursor = '';
-                indicator.removeEventListener('click', requestOnTap);
-                if (response === 'granted') {
-                  window.addEventListener('deviceorientation', handleOrientation);
-                  state.gyroWatcher = true;
-                  statusEl.textContent = '計測中...';
-                  statusEl.className = '';
-                } else {
-                  enableWithoutGyro(valueEl, statusEl, captureBtn);
-                }
-              })
-              .catch(() => {
+    // 少し待ってもイベントが来ない場合のみ「タップして有効化」のUIを出す（iOS等未許可時）
+    setTimeout(() => {
+      if (state._gyroReceived) return; // 既にイベントを受信していれば何もしない
+
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        indicator.style.pointerEvents = 'auto';
+        indicator.style.cursor = 'pointer';
+        statusEl.textContent = 'タップして有効化';
+        statusEl.className = 'level-na';
+        valueEl.textContent = '—';
+
+        const requestOnTap = () => {
+          DeviceOrientationEvent.requestPermission()
+            .then(response => {
+              indicator.style.pointerEvents = 'none';
+              indicator.style.cursor = '';
+              indicator.removeEventListener('click', requestOnTap);
+              if (response === 'granted') {
+                statusEl.textContent = '計測中...';
+                statusEl.className = '';
+              } else {
                 enableWithoutGyro(valueEl, statusEl, captureBtn);
-              });
-          };
-          indicator.addEventListener('click', requestOnTap);
+              }
+            })
+            .catch(() => enableWithoutGyro(valueEl, statusEl, captureBtn));
+        };
+        indicator.addEventListener('click', requestOnTap);
 
-          // Also enable capture after timeout so user isn't stuck
-          setTimeout(() => {
-            if (!state._gyroReceived) {
-              captureBtn.disabled = false;
-            }
-          }, 3000);
-        });
-    } else {
-      // Android & Desktop
-      window.addEventListener('deviceorientation', handleOrientation);
-      state.gyroWatcher = true;
-
-      // Fallback if no events fire (desktop, or sensor not available)
-      setTimeout(() => {
-        if (state.gyroWatcher && !state._gyroReceived) {
-          enableWithoutGyro(valueEl, statusEl, captureBtn);
-        }
-      }, 1500);
-    }
+        setTimeout(() => {
+          if (!state._gyroReceived) captureBtn.disabled = false;
+        }, 3000);
+      } else {
+        // iOS以外でイベントが来ない場合は単純にセンサーなし扱い
+        enableWithoutGyro(valueEl, statusEl, captureBtn);
+      }
+    }, 800);
   }
 
   function enableWithoutGyro(valueEl, statusEl, captureBtn) {

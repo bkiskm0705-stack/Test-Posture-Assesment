@@ -526,6 +526,7 @@ input, select, textarea { font-family: inherit; }
   position: relative;
   overflow: hidden;
   box-shadow: var(--shadow-card);
+  flex-shrink: 0;
 }
 .profile-card::after {
   content: '';
@@ -593,6 +594,7 @@ input, select, textarea { font-family: inherit; }
   margin-bottom: var(--space-md);
   gap: var(--space-sm);
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 .section-header h2 {
   font-size: 1.05rem;
