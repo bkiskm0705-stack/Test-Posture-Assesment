@@ -139,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.64</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.64.1</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2153,11 +2153,11 @@
         <div class="compare-date-row" data-date="${dateStr}">
           <div class="compare-date-label">${dateStr}</div>
           <div class="compare-date-images">
-            <div class="compare-panel" id="cp-sag-${dateStr.replace(/\//g, '-')}">
-              ${!data.sagittal ? '<div class="compare-panel-empty">矢状面なし</div>' : ''}
-            </div>
             <div class="compare-panel" id="cp-pos-${dateStr.replace(/\//g, '-')}">
               ${!data.posterior ? '<div class="compare-panel-empty">前額面なし</div>' : ''}
+            </div>
+            <div class="compare-panel" id="cp-sag-${dateStr.replace(/\//g, '-')}">
+              ${!data.sagittal ? '<div class="compare-panel-empty">矢状面なし</div>' : ''}
             </div>
           </div>
         </div>
