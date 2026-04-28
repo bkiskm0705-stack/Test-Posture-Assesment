@@ -139,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.63</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.64</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2054,83 +2054,160 @@
     state.currentClient = await AequumDB.getClient(clientId);
     const sessions = await AequumDB.getSessionsByClient(clientId);
 
-    if (sessions.length < 2) {
-      showToast('比較には2回以上の評価が必要です', 'error');
+    if (sessions.length === 0) {
+      showToast('評価データがありません', 'error');
       goBack();
       return;
     }
 
-    // Populate session selectors
-    const selectBefore = $('select-before');
-    const selectAfter = $('select-after');
+    const sagSessions = sessions.filter(s => s.viewType !== 'posterior').sort((a,b) => new Date(a.capturedAt) - new Date(b.capturedAt));
+    const posSessions = sessions.filter(s => s.viewType === 'posterior').sort((a,b) => new Date(a.capturedAt) - new Date(b.capturedAt));
 
-    const optionsHtml = sessions.map(s => {
+    const generateOptions = (list) => list.map(s => {
       const date = new Date(s.capturedAt).toLocaleDateString('ja-JP', {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
       });
       return `<option value="${s.id}">${date}</option>`;
     }).join('');
 
-    selectBefore.innerHTML = optionsHtml;
-    selectAfter.innerHTML = optionsHtml;
+    // Sagittal Selectors
+    const sagBefore = $('onion-sag-before');
+    const sagAfter = $('onion-sag-after');
+    sagBefore.innerHTML = generateOptions(sagSessions);
+    sagAfter.innerHTML = generateOptions(sagSessions);
+    if (sagSessions.length >= 2) {
+      sagBefore.value = sagSessions[0].id;
+      sagAfter.value = sagSessions[sagSessions.length - 1].id;
+    }
 
-    // Default: oldest vs newest
-    selectBefore.value = sessions[sessions.length - 1].id;
-    selectAfter.value = sessions[0].id;
+    // Posterior Selectors
+    const posBefore = $('onion-pos-before');
+    const posAfter = $('onion-pos-after');
+    posBefore.innerHTML = generateOptions(posSessions);
+    posAfter.innerHTML = generateOptions(posSessions);
+    if (posSessions.length >= 2) {
+      posBefore.value = posSessions[0].id;
+      posAfter.value = posSessions[posSessions.length - 1].id;
+    }
 
-    // Populate landmark selector for trend
-    const trendSelect = $('trend-landmark-select');
-    trendSelect.innerHTML = AequumAnalysis.LANDMARKS
-      .filter(l => !l.isReference)
-      .map(l => `<option value="${l.id}">${l.name}</option>`)
-      .join('');
+    // Event listeners for onion
+    const renderOnion = () => renderOnionFromSelectors(sessions);
+    sagBefore.addEventListener('change', renderOnion);
+    sagAfter.addEventListener('change', renderOnion);
+    posBefore.addEventListener('change', renderOnion);
+    posAfter.addEventListener('change', renderOnion);
 
-    // Event listeners
-    selectBefore.addEventListener('change', () => renderComparison(sessions));
-    selectAfter.addEventListener('change', () => renderComparison(sessions));
-    trendSelect.addEventListener('change', () => renderTrendChart(sessions));
+    // Render side-by-side (all dates vertical)
+    await renderAllDatesComparison(sessions);
 
-    // Initial render
-    renderComparison(sessions);
+    // Initial onion skin render
+    renderOnionFromSelectors(sessions);
   }
 
-  async function renderComparison(sessions) {
-    const beforeId = $('select-before').value;
-    const afterId = $('select-after').value;
+  async function renderOnionFromSelectors(sessions) {
+    // Sagittal
+    const sBeforeId = $('onion-sag-before').value;
+    const sAfterId = $('onion-sag-after').value;
+    const sBefore = sessions.find(s => s.id === sBeforeId);
+    const sAfter = sessions.find(s => s.id === sAfterId);
+    renderSingleOnionSkin('onion-canvas-sag', 'onion-slider-sag', sBefore, sAfter);
 
-    const beforeSession = sessions.find(s => s.id === beforeId);
-    const afterSession = sessions.find(s => s.id === afterId);
+    // Posterior
+    const pBeforeId = $('onion-pos-before').value;
+    const pAfterId = $('onion-pos-after').value;
+    const pBefore = sessions.find(s => s.id === pBeforeId);
+    const pAfter = sessions.find(s => s.id === pAfterId);
+    renderSingleOnionSkin('onion-canvas-pos', 'onion-slider-pos', pBefore, pAfter);
+  }
 
-    if (!beforeSession || !afterSession) return;
+  async function renderAllDatesComparison(sessions) {
+    const container = $('compare-side');
 
-    state.compareBeforeSession = beforeSession;
-    state.compareAfterSession = afterSession;
+    // Group sessions by date
+    const sessionsByDate = {};
+    sessions.forEach(s => {
+      const dateObj = new Date(s.capturedAt);
+      const dateKey = dateObj.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      if (!sessionsByDate[dateKey]) {
+        sessionsByDate[dateKey] = { sagittal: null, posterior: null, timestamp: dateObj.getTime() };
+      }
+      // Keep the latest session of each type per date
+      if (s.viewType === 'posterior') {
+        if (!sessionsByDate[dateKey].posterior || new Date(s.capturedAt) > new Date(sessionsByDate[dateKey].posterior.capturedAt)) {
+          sessionsByDate[dateKey].posterior = s;
+        }
+      } else {
+        if (!sessionsByDate[dateKey].sagittal || new Date(s.capturedAt) > new Date(sessionsByDate[dateKey].sagittal.capturedAt)) {
+          sessionsByDate[dateKey].sagittal = s;
+        }
+      }
+    });
 
-    // Side-by-side: render images with landmarks
-    await renderComparePanel($('compare-before'), beforeSession, 'Before');
-    await renderComparePanel($('compare-after'), afterSession, 'After');
+    // Sort dates descending (newest first)
+    const dates = Object.entries(sessionsByDate)
+      .sort((a, b) => b[1].timestamp - a[1].timestamp);
 
-    // Onion skin
-    renderOnionSkin(beforeSession, afterSession);
+    // Build HTML
+    container.innerHTML = dates.map(([dateStr, data]) => {
+      return `
+        <div class="compare-date-row" data-date="${dateStr}">
+          <div class="compare-date-label">${dateStr}</div>
+          <div class="compare-date-images">
+            <div class="compare-panel" id="cp-sag-${dateStr.replace(/\//g, '-')}">
+              ${!data.sagittal ? '<div class="compare-panel-empty">矢状面なし</div>' : ''}
+            </div>
+            <div class="compare-panel" id="cp-pos-${dateStr.replace(/\//g, '-')}">
+              ${!data.posterior ? '<div class="compare-panel-empty">前額面なし</div>' : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Render images into panels
+    for (const [dateStr, data] of dates) {
+      const safeDate = dateStr.replace(/\//g, '-');
+      if (data.sagittal) {
+        await renderComparePanel(
+          document.getElementById(`cp-sag-${safeDate}`),
+          data.sagittal,
+          '矢状面'
+        );
+      }
+      if (data.posterior) {
+        await renderComparePanel(
+          document.getElementById(`cp-pos-${safeDate}`),
+          data.posterior,
+          '前額面'
+        );
+      }
+    }
   }
 
   async function renderComparePanel(container, session, label) {
-    container.innerHTML = `<span class="label">${label}</span>`;
+    // Don't overwrite if it's a placeholder
+    if (container.querySelector('.compare-panel-empty')) {
+      container.innerHTML = '';
+    }
+    const labelEl = document.createElement('span');
+    labelEl.className = 'label';
+    labelEl.textContent = label;
+    container.appendChild(labelEl);
 
     const canvas = document.createElement('canvas');
     container.appendChild(canvas);
 
     const imageBlob = session.imageId ? await AequumDB.getImage(session.imageId) : null;
     if (!imageBlob) {
-      container.innerHTML += '<div style="text-align:center; color:var(--text-muted); padding:24px;">画像なし</div>';
+      container.innerHTML = `<span class="label">${label}</span><div style="text-align:center; color:var(--text-muted); padding:24px;">画像なし</div>`;
       return;
     }
 
     const img = new Image();
     const url = URL.createObjectURL(imageBlob);
     img.onload = () => {
-      canvas.width = container.clientWidth;
-      canvas.height = container.clientHeight;
+      canvas.width = container.clientWidth || 300;
+      canvas.height = container.clientHeight || 400;
       const ctx = canvas.getContext('2d');
 
       // Draw image
@@ -2156,13 +2233,26 @@
     img.src = url;
   }
 
-  async function renderOnionSkin(beforeSession, afterSession) {
-    const canvas = $('onion-canvas');
-    const slider = $('onion-slider');
+  async function renderSingleOnionSkin(canvasId, sliderId, beforeSession, afterSession) {
+    const canvas = $(canvasId);
+    const slider = $(sliderId);
     if (!canvas) return;
 
-    const beforeBlob = beforeSession.imageId ? await AequumDB.getImage(beforeSession.imageId) : null;
-    const afterBlob = afterSession.imageId ? await AequumDB.getImage(afterSession.imageId) : null;
+    // Check if either session is missing or lacks an image
+    if (!beforeSession || !afterSession || !beforeSession.imageId || !afterSession.imageId) {
+      const ctx = canvas.getContext('2d');
+      canvas.width = canvas.clientWidth || 300;
+      canvas.height = canvas.clientHeight || 400;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'var(--text-muted)';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('比較対象の画像がありません', canvas.width / 2, canvas.height / 2);
+      return;
+    }
+
+    const beforeBlob = await AequumDB.getImage(beforeSession.imageId);
+    const afterBlob = await AequumDB.getImage(afterSession.imageId);
 
     if (!beforeBlob || !afterBlob) return;
 
@@ -2177,10 +2267,12 @@
       if (ready < 2) return;
 
       const render = () => {
-        canvas.width = canvas.clientWidth;
-        canvas.height = canvas.clientHeight;
+        canvas.width = canvas.clientWidth || 300;
+        canvas.height = canvas.clientHeight || 400;
         const ctx = canvas.getContext('2d');
         const alpha = parseInt(slider.value) / 100;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         // Draw before image
         ctx.globalAlpha = 1 - alpha;
@@ -2206,7 +2298,9 @@
       };
 
       render();
-      slider.addEventListener('input', render);
+      slider.removeEventListener('input', slider._onionRender); // remove previous if any
+      slider._onionRender = render;
+      slider.addEventListener('input', slider._onionRender);
 
       URL.revokeObjectURL(beforeUrl);
       URL.revokeObjectURL(afterUrl);
@@ -2225,17 +2319,51 @@
       sessions = await AequumDB.getSessionsByClient(clientId);
     }
 
-    const canvas = $('trend-chart');
-    if (!canvas) return;
+    const container = $('trend-charts-container');
+    if (!container) return;
 
-    canvas.width = canvas.clientWidth;
-    canvas.height = canvas.clientHeight;
-    const ctx = canvas.getContext('2d');
+    container.innerHTML = ''; // clear previous charts
 
-    const landmarkId = $('trend-landmark-select').value;
-    const data = AequumAnalysis.getTrendData(sessions, landmarkId);
+    const landmarks = AequumAnalysis.LANDMARKS.filter(l => !l.isReference);
 
-    AequumAnalysis.drawTrendChart(ctx, canvas.width, canvas.height, data);
+    landmarks.forEach(landmark => {
+      const data = AequumAnalysis.getTrendData(sessions, landmark.id);
+      
+      // Skip rendering if no trend data points exist for this landmark
+      if (!data || data.length === 0) return;
+
+      const chartWrapper = document.createElement('div');
+      chartWrapper.style.background = 'var(--bg-surface)';
+      chartWrapper.style.padding = 'var(--space-md)';
+      chartWrapper.style.borderRadius = 'var(--radius-md)';
+      chartWrapper.style.boxShadow = 'var(--shadow-card)';
+      
+      const title = document.createElement('h4');
+      title.textContent = landmark.name;
+      title.style.margin = '0 0 var(--space-sm) 0';
+      title.style.fontSize = '0.9rem';
+      title.style.color = 'var(--text-primary)';
+      chartWrapper.appendChild(title);
+
+      const canvas = document.createElement('canvas');
+      canvas.style.width = '100%';
+      canvas.style.aspectRatio = '16/9';
+      chartWrapper.appendChild(canvas);
+
+      container.appendChild(chartWrapper);
+
+      // Force layout to calculate width/height
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width || 400;
+      canvas.height = rect.height || 225;
+
+      const ctx = canvas.getContext('2d');
+      AequumAnalysis.drawTrendChart(ctx, canvas.width, canvas.height, data);
+    });
+    
+    if (container.children.length === 0) {
+      container.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:24px;">トレンドデータがありません</div>';
+    }
   }
 
   // ──────────────────────────────────────────────────────

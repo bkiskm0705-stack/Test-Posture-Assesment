@@ -1049,18 +1049,40 @@ input, select, textarea { font-family: inherit; }
   display: none;
 }
 #compare-side.active {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-bottom: var(--space-md);
+}
+
+.compare-date-row {
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+.compare-date-label {
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.compare-date-images {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-sm);
+  gap: 1px;
+  background: var(--border-subtle);
 }
 
 .compare-panel {
   background: var(--bg-surface);
-  border-radius: var(--radius-md);
   overflow: hidden;
   aspect-ratio: 3/4;
   position: relative;
-  box-shadow: var(--shadow-card);
 }
 .compare-panel img,
 .compare-panel canvas {
@@ -1080,17 +1102,71 @@ input, select, textarea { font-family: inherit; }
   color: white;
   backdrop-filter: blur(4px);
 }
+.compare-panel-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  background: var(--bg-base);
+  aspect-ratio: 3/4;
+}
 
 /* Onion skin */
 #compare-onion {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
 }
-#onion-canvas {
-  width: 100%;
-  aspect-ratio: 3/4;
+.onion-section {
   background: var(--bg-surface);
   border-radius: var(--radius-md);
+  padding: var(--space-md);
   box-shadow: var(--shadow-card);
+}
+.onion-section-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-sm);
+}
+.onion-selectors {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  margin-bottom: var(--space-sm);
+}
+.onion-selectors select {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+.onion-arrow {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.onion-section canvas {
+  width: 100%;
+  aspect-ratio: 3/4;
+  background: var(--bg-base);
+  border-radius: var(--radius-sm);
+}
+.onion-no-data {
+  width: 100%;
+  aspect-ratio: 3/4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-base);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .slider {
@@ -1122,47 +1198,16 @@ input, select, textarea { font-family: inherit; }
 }
 
 /* Trend chart */
-#trend-chart {
-  width: 100%;
-  aspect-ratio: 16/10;
-  background: var(--bg-surface);
-  border-radius: var(--radius-md);
-  margin-top: var(--space-md);
-  box-shadow: var(--shadow-card);
+#trend-charts-container {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-lg);
+  padding-bottom: var(--space-md);
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
-#trend-controls {
-  display: flex;
-  gap: var(--space-sm);
-}
-#trend-controls select {
-  flex: 1;
-  padding: 8px 12px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 0.85rem;
-}
 
-#compare-session-selector {
-  margin-top: var(--space-lg);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-  align-items: center;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-#compare-session-selector select {
-  flex: 1;
-  padding: 8px 12px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 0.85rem;
-}
 
 /* ── Report ────────────────────────────────────────── */
 .report-container {
@@ -1417,9 +1462,17 @@ input, select, textarea { font-family: inherit; }
     left: calc(50% - 400px + 8px);
   }
 
-  #compare-side.active {
+  /* compare-side is now vertical, no grid override needed */
+  #compare-onion {
+    flex-direction: row;
+  }
+  #compare-onion .onion-section {
+    flex: 1;
+    min-width: 0;
+  }
+
+  #trend-charts-container {
     grid-template-columns: 1fr 1fr;
-    gap: var(--space-xl);
   }
 
   /* Make report table and container look grouped */

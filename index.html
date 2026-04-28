@@ -24,7 +24,7 @@
       <button id="btn-back" class="header-btn" aria-label="戻る" style="display:none;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
-      <h1 id="header-title">Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.63</span></h1>
+      <h1 id="header-title">Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.64</span></h1>
       <div id="header-actions"></div>
     </header>
 
@@ -191,32 +191,45 @@
         <button class="tab" data-mode="trend">トレンド</button>
       </div>
       <div id="compare-content">
-        <!-- Side-by-side -->
-        <div id="compare-side" class="compare-view active">
-          <div class="compare-panel" id="compare-before"></div>
-          <div class="compare-panel" id="compare-after"></div>
-        </div>
+        <!-- Side-by-side: all dates vertical -->
+        <div id="compare-side" class="compare-view active"></div>
         <!-- Onion skin -->
         <div id="compare-onion" class="compare-view">
-          <canvas id="onion-canvas"></canvas>
-          <input type="range" id="onion-slider" min="0" max="100" value="50" class="slider">
-          <div class="slider-labels">
-            <span>Before</span>
-            <span>After</span>
+          <!-- Sagittal onion -->
+          <div class="onion-section">
+            <div class="onion-section-label">矢状面（側面）</div>
+            <div class="onion-selectors">
+              <select id="onion-sag-before"></select>
+              <span class="onion-arrow">→</span>
+              <select id="onion-sag-after"></select>
+            </div>
+            <canvas id="onion-canvas-sag"></canvas>
+            <input type="range" id="onion-slider-sag" min="0" max="100" value="50" class="slider">
+            <div class="slider-labels">
+              <span>Before</span>
+              <span>After</span>
+            </div>
+          </div>
+          <!-- Posterior onion -->
+          <div class="onion-section">
+            <div class="onion-section-label">前額面（背面）</div>
+            <div class="onion-selectors">
+              <select id="onion-pos-before"></select>
+              <span class="onion-arrow">→</span>
+              <select id="onion-pos-after"></select>
+            </div>
+            <canvas id="onion-canvas-pos"></canvas>
+            <input type="range" id="onion-slider-pos" min="0" max="100" value="50" class="slider">
+            <div class="slider-labels">
+              <span>Before</span>
+              <span>After</span>
+            </div>
           </div>
         </div>
         <!-- Trend graph -->
         <div id="compare-trend" class="compare-view">
-          <div id="trend-controls">
-            <select id="trend-landmark-select"></select>
-          </div>
-          <canvas id="trend-chart"></canvas>
+          <div id="trend-charts-container"></div>
         </div>
-      </div>
-      <div id="compare-session-selector">
-        <label>セッション選択:</label>
-        <select id="select-before"></select>
-        <select id="select-after"></select>
       </div>
     </section>
 
