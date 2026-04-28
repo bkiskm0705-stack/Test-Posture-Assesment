@@ -139,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.61</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.62</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -187,7 +187,7 @@
         break;
       default:
         back.style.display = '';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.61</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.62</span>';
     }
   }
 
@@ -276,62 +276,10 @@
       }
     });
 
-    // Daily Report Button
+    // Analysis Report Button (Patient wide)
     $('btn-daily-report').addEventListener('click', async () => {
       if (!state.currentClient) return;
-      const sessions = await AequumDB.getSessionsByClient(state.currentClient.id);
-
-      // Group sessions by date
-      const sessionsByDate = {};
-      sessions.forEach(s => {
-        const dateObj = new Date(s.capturedAt);
-        const dateStr = dateObj.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
-        if (!sessionsByDate[dateStr]) {
-          sessionsByDate[dateStr] = { sagittal: false, posterior: false, dateStr, timestamp: dateObj.getTime() };
-        }
-        if (s.viewType === 'posterior') {
-          sessionsByDate[dateStr].posterior = true;
-        } else {
-          sessionsByDate[dateStr].sagittal = true;
-        }
-      });
-
-      const listEl = $('daily-report-date-list');
-      const dates = Object.values(sessionsByDate).sort((a, b) => b.timestamp - a.timestamp);
-
-      if (dates.length === 0) {
-        listEl.innerHTML = '<div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">評価データがありません</div>';
-      } else {
-        listEl.innerHTML = dates.map(d => {
-          const bothAvailable = d.sagittal && d.posterior;
-          return `
-            <div class="client-card" style="display:flex; justify-content:space-between; align-items:center; opacity: ${bothAvailable ? '1' : '0.6'}" 
-                 data-date="${d.dateStr}" data-both="${bothAvailable}">
-              <div>
-                <div style="font-weight: 600; font-size: 1rem;">${d.dateStr}</div>
-                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px;">
-                  側面データ: ${d.sagittal ? '✔️' : '未撮影'} / 後面データ: ${d.posterior ? '✔️' : '未撮影'}
-                </div>
-              </div>
-              <button class="btn-outline btn-select-date" style="padding: 6px 12px; font-size: 0.85rem;">選択</button>
-            </div>
-          `;
-        }).join('');
-
-        listEl.querySelectorAll('.client-card').forEach(card => {
-          card.querySelector('.btn-select-date').addEventListener('click', () => {
-            const dateStr = card.dataset.date;
-            if (card.dataset.both === 'false') {
-              // Warn but allow? Or strictly block? The prompt expects both, let's allow but it might look incomplete
-              // Just close modal and navigate
-            }
-            $('modal-daily-report-select').style.display = 'none';
-            navigateTo('report', { mode: 'daily', clientId: state.currentClient.id, date: dateStr });
-          });
-        });
-      }
-
-      $('modal-daily-report-select').style.display = '';
+      navigateTo('report', { mode: 'patient', clientId: state.currentClient.id });
     });
 
     // Analyze toolbar
@@ -2295,23 +2243,31 @@
   // PAGE: Report
   // ──────────────────────────────────────────────────────
   async function initReport(data) {
-    state.reportMode = data && data.mode === 'daily' ? 'daily' : 'single';
+    state.reportMode = data && data.mode === 'patient' ? 'patient' : 'single';
 
-    if (state.reportMode === 'daily') {
-      const { clientId, date: dateStr } = data;
+    if (state.reportMode === 'patient') {
+      const { clientId } = data;
       const client = await AequumDB.getClient(clientId);
       if (!client) { showToast('患者が見つかりません', 'error'); goBack(); return; }
       state.currentClient = client;
 
       const sessions = await AequumDB.getSessionsByClient(clientId);
-      const targetSessions = sessions.filter(s => {
-        const ds = new Date(s.capturedAt).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
-        return ds === dateStr;
-      });
+      
+      if (sessions.length === 0) {
+        showToast('評価データがありません', 'error');
+        goBack();
+        return;
+      }
 
-      const sagittalSession = targetSessions.find(s => s.viewType !== 'posterior') || null;
-      const posteriorSession = targetSessions.find(s => s.viewType === 'posterior') || null;
-      state.currentSession = sagittalSession || posteriorSession || targetSessions[0];
+      // Sort sessions by date descending
+      sessions.sort((a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime());
+
+      const sagittalSession = sessions.find(s => s.viewType !== 'posterior') || null;
+      const posteriorSession = sessions.find(s => s.viewType === 'posterior') || null;
+      state.currentSession = sagittalSession || posteriorSession || sessions[0];
+
+      // Use the latest session's date for the report header
+      const dateStr = new Date(state.currentSession.capturedAt).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
 
       const container = $('report-content');
       container.innerHTML = await AequumAnalysis.generateCombinedReportHTML(client, sagittalSession, posteriorSession, dateStr);
