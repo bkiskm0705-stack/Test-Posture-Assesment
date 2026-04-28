@@ -1114,7 +1114,10 @@ input, select, textarea { font-family: inherit; }
 
 /* Onion skin */
 #compare-onion {
+  display: none;
   position: relative;
+}
+#compare-onion.active {
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
@@ -1463,7 +1466,7 @@ input, select, textarea { font-family: inherit; }
   }
 
   /* compare-side is now vertical, no grid override needed */
-  #compare-onion {
+  #compare-onion.active {
     flex-direction: row;
   }
   #compare-onion .onion-section {
