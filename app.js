@@ -139,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.62</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.63</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -280,6 +280,12 @@
     $('btn-daily-report').addEventListener('click', async () => {
       if (!state.currentClient) return;
       navigateTo('report', { mode: 'patient', clientId: state.currentClient.id });
+    });
+
+    // Compare Button (Patient wide)
+    $('btn-compare-patient').addEventListener('click', () => {
+      if (!state.currentClient) return;
+      navigateTo('compare', { clientId: state.currentClient.id });
     });
 
     // Analyze toolbar
@@ -584,7 +590,6 @@
           <div class="session-summary">${badges || '<span style="color:var(--text-muted); font-size:0.82rem;">ランドマーク未設定</span>'}</div>
           <div class="session-actions">
             <button class="btn-view-session" data-id="${s.id}">詳細</button>
-            <button class="btn-compare-session" data-id="${s.id}">比較</button>
           </div>
         </div>
       `;
@@ -595,12 +600,6 @@
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         navigateTo('analyze', { sessionId: btn.dataset.id, mode: 'view' });
-      });
-    });
-    timeline.querySelectorAll('.btn-compare-session').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        navigateTo('compare', { clientId: state.currentClient.id });
       });
     });
   }
