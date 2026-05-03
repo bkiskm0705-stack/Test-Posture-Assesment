@@ -139,7 +139,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.64.3</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.64.4</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -675,6 +675,9 @@
       state.cameraStream = stream;
       video.srcObject = stream;
 
+      // Enable capture button now that camera is ready
+      captureBtn.disabled = false;
+
       // Draw grid overlay
       drawCameraGrid();
 
@@ -914,19 +917,18 @@
   }
 
   function initGyroscope() {
-    const valueEl = $('level-value');
     const statusEl = $('level-status');
     const captureBtn = $('btn-capture');
     const indicator = $('level-indicator');
 
     // Reset state
     state._gyroReceived = false;
-    state._levelState = 'unknown'; // 'ok', 'near', 'off', 'unknown', 'na'
+    state._levelState = 'unknown'; // grade 1-5, 'unknown', 'na'
 
     // Check if DeviceOrientationEvent is available
     if (!window.DeviceOrientationEvent) {
       captureBtn.disabled = false;
-      valueEl.textContent = '—';
+      indicator.setAttribute('data-grade', '0');
       statusEl.textContent = 'センサーなし';
       statusEl.className = 'level-na';
       state._levelState = 'na';
@@ -946,7 +948,7 @@
         indicator.style.cursor = 'pointer';
         statusEl.textContent = 'タップして有効化';
         statusEl.className = 'level-na';
-        valueEl.textContent = '—';
+        indicator.setAttribute('data-grade', '0');
 
         const requestOnTap = () => {
           DeviceOrientationEvent.requestPermission()
@@ -958,10 +960,10 @@
                 statusEl.textContent = '計測中...';
                 statusEl.className = '';
               } else {
-                enableWithoutGyro(valueEl, statusEl, captureBtn);
+                enableWithoutGyro(statusEl, captureBtn);
               }
             })
-            .catch(() => enableWithoutGyro(valueEl, statusEl, captureBtn));
+            .catch(() => enableWithoutGyro(statusEl, captureBtn));
         };
         indicator.addEventListener('click', requestOnTap);
 
@@ -970,14 +972,15 @@
         }, 3000);
       } else {
         // iOS以外でイベントが来ない場合は単純にセンサーなし扱い
-        enableWithoutGyro(valueEl, statusEl, captureBtn);
+        enableWithoutGyro(statusEl, captureBtn);
       }
     }, 800);
   }
 
-  function enableWithoutGyro(valueEl, statusEl, captureBtn) {
+  function enableWithoutGyro(statusEl, captureBtn) {
     captureBtn.disabled = false;
-    valueEl.textContent = '—';
+    const indicator = $('level-indicator');
+    indicator.setAttribute('data-grade', '0');
     statusEl.textContent = 'センサーなし';
     statusEl.className = 'level-na';
     state._levelState = 'na';
@@ -987,9 +990,8 @@
 
   function handleOrientation(event) {
     state._gyroReceived = true;
-    const valueEl = $('level-value');
     const statusEl = $('level-status');
-    const captureBtn = $('btn-capture');
+    const indicator = $('level-indicator');
 
     // 左右方向（roll）は無視し、上下方向（pitch）の水平のみを判定する
     const beta = event.beta || 0;
@@ -1008,29 +1010,29 @@
     }
 
     const absPitch = Math.abs(pitchDev);
-    const isLevel = absPitch <= 3.0;
-    const isNearLevel = absPitch <= 5.0;
 
-    // 角度は上下のズレのみを表示
-    valueEl.textContent = `${absPitch.toFixed(1)}°`;
-
-    const prevState = state._levelState;
-    if (isLevel) {
-      statusEl.textContent = '水平 ✓';
-      statusEl.className = 'level-ok';
-      state._levelState = 'ok';
-    } else if (isNearLevel) {
-      statusEl.textContent = 'あと少し…';
-      statusEl.className = '';
-      state._levelState = 'near';
+    // 5段階の定性的評価
+    let grade, label, levelStateKey;
+    if (absPitch <= 1.5) {
+      grade = 5; label = '完璧 ✓'; levelStateKey = 'ok';
+    } else if (absPitch <= 3.0) {
+      grade = 4; label = '良好'; levelStateKey = 'ok';
+    } else if (absPitch <= 6.0) {
+      grade = 3; label = 'まずまず'; levelStateKey = 'near';
+    } else if (absPitch <= 12.0) {
+      grade = 2; label = 'やや傾き'; levelStateKey = 'off';
     } else {
-      // 左右のヒントは出さず、上下のみのガイドにする
-      statusEl.textContent = pitchDev > 0 ? '下げて' : '上げて';
-      statusEl.className = '';
-      state._levelState = 'off';
+      grade = 1; label = '傾きあり'; levelStateKey = 'off';
     }
 
-    captureBtn.disabled = !isLevel;
+    indicator.setAttribute('data-grade', String(grade));
+    statusEl.textContent = label;
+    statusEl.className = `level-${grade}`;
+
+    const prevState = state._levelState;
+    state._levelState = levelStateKey;
+
+    // Level indicator is advisory only — do not disable the capture button
 
     // Only redraw crosshair when level state category changes
     if (prevState !== state._levelState) {

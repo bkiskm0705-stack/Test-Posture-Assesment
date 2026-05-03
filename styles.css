@@ -781,20 +781,33 @@ input, select, textarea { font-family: inherit; }
   pointer-events: none;
 }
 
-#level-value {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.95);
-  font-family: var(--font-mono);
-  background: rgba(0, 0, 0, 0.5);
-  padding: 5px 10px;
+/* Level bars — 5-segment qualitative indicator */
+#level-bars {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 5px 8px;
   border-radius: var(--radius-full);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  min-width: 44px;
-  text-align: center;
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
+
+.level-bar {
+  width: 6px;
+  height: 14px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+  transition: background var(--transition-fast);
+}
+
+/* Active bar colors by level grade */
+#level-indicator[data-grade="5"] .level-bar { background: #00C9A7; }
+#level-indicator[data-grade="4"] .level-bar:nth-child(-n+4) { background: #66D9A0; }
+#level-indicator[data-grade="3"] .level-bar:nth-child(-n+3) { background: #F59E0B; }
+#level-indicator[data-grade="2"] .level-bar:nth-child(-n+2) { background: #F97316; }
+#level-indicator[data-grade="1"] .level-bar:nth-child(-n+1) { background: #EF4444; }
 
 #level-status {
   font-size: 0.78rem;
@@ -809,10 +822,30 @@ input, select, textarea { font-family: inherit; }
   color: #FCA5A5;
   border: 1px solid rgba(239, 68, 68, 0.35);
 }
-#level-status.level-ok {
+#level-status.level-5 {
   background: rgba(0, 201, 167, 0.3);
   color: #A7F3D0;
   border-color: rgba(0, 201, 167, 0.4);
+}
+#level-status.level-4 {
+  background: rgba(102, 217, 160, 0.25);
+  color: #A7F3D0;
+  border-color: rgba(102, 217, 160, 0.35);
+}
+#level-status.level-3 {
+  background: rgba(245, 158, 11, 0.3);
+  color: #FDE68A;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+#level-status.level-2 {
+  background: rgba(249, 115, 22, 0.3);
+  color: #FDBA74;
+  border-color: rgba(249, 115, 22, 0.35);
+}
+#level-status.level-1 {
+  background: rgba(239, 68, 68, 0.3);
+  color: #FCA5A5;
+  border-color: rgba(239, 68, 68, 0.35);
 }
 #level-status.level-na {
   background: rgba(255, 255, 255, 0.12);
