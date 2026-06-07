@@ -1536,3 +1536,53 @@ input, select, textarea { font-family: inherit; }
     grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   }
 }
+
+/* ── Posture Selection Card ───────────────────────── */
+.posture-option-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-md) var(--space-lg);
+  background: var(--bg-surface);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+}
+.posture-option-card:hover {
+  border-color: var(--primary);
+  background: var(--bg-surface-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+.posture-option-card:active {
+  transform: scale(0.98);
+}
+.posture-option-icon {
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-soft);
+  border-radius: var(--radius-sm);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.posture-option-text {
+  flex: 1;
+  min-width: 0;
+}
+.posture-option-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+.posture-option-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}

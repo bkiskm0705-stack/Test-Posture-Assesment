@@ -24,7 +24,7 @@
       <button id="btn-back" class="header-btn" aria-label="戻る" style="display:none;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
-      <h1 id="header-title">Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.64.4</span></h1>
+      <h1 id="header-title">Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.65</span></h1>
       <div id="header-actions"></div>
     </header>
 
@@ -114,8 +114,9 @@
       </div>
       <div id="timeline-tabs" class="tab-bar" style="margin-bottom:16px;">
         <button class="tab active" data-filter="all">すべて</button>
-        <button class="tab" data-filter="sagittal">矢状面</button>
-        <button class="tab" data-filter="posterior">前額面（背面）</button>
+        <button class="tab" data-filter="sagittal">立位・矢状面</button>
+        <button class="tab" data-filter="posterior">立位・前額面</button>
+        <button class="tab" data-filter="seated_sagittal">座位</button>
       </div>
       <div id="session-timeline" class="timeline"></div>
       <div id="session-empty" class="empty-state" style="display:none;">
@@ -264,6 +265,48 @@
       </div>
     </div>
 
+
+    <!-- ===== Modal: 評価タイプ選択 ===== -->
+    <div id="modal-posture-select" class="modal" style="display:none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <h3>評価タイプを選択</h3>
+        <div style="display:flex; flex-direction:column; gap:12px; margin-top:16px;">
+          <button id="btn-posture-standing" class="posture-option-card">
+            <div class="posture-option-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="4" r="2"/>
+                <path d="M12 6v8"/>
+                <path d="M9 22l3-6 3 6"/>
+                <path d="M7 12l5-2 5 2"/>
+              </svg>
+            </div>
+            <div class="posture-option-text">
+              <div class="posture-option-title">立位評価</div>
+              <div class="posture-option-desc">矢状面（側面）＋ 前額面（背面）の2枚撮影</div>
+            </div>
+          </button>
+          <button id="btn-posture-seated" class="posture-option-card">
+            <div class="posture-option-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="4" r="2"/>
+                <path d="M12 6v6"/>
+                <path d="M8 12h8"/>
+                <path d="M9 12l-1 6"/>
+                <path d="M15 12l1 6"/>
+                <path d="M7 18h4"/>
+                <path d="M13 18h4"/>
+              </svg>
+            </div>
+            <div class="posture-option-text">
+              <div class="posture-option-title">座位評価</div>
+              <div class="posture-option-desc">矢状面（側面）のみ — 大転子基準で上半身を評価</div>
+            </div>
+          </button>
+        </div>
+        <button class="btn-outline modal-close" style="width:100%; margin-top:16px;">キャンセル</button>
+      </div>
+    </div>
 
     <!-- ===== Modal: 設定 ===== -->
     <div id="modal-settings" class="modal" style="display:none;">

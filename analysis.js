@@ -16,6 +16,14 @@ const AequumAnalysis = (() => {
     { id: 'earlobe',           name: '耳垂', nameEn: 'Earlobe', color: '#2C7BE5', isReference: false, order: 4 },
   ];
 
+  // Seated sagittal plane (lateral view) landmarks
+  // In seated posture, the plumb line reference is the greater trochanter
+  const SEATED_SAGITTAL_LANDMARKS = [
+    { id: 'greater_trochanter', name: '大転子', nameEn: 'Greater Trochanter', color: '#EF4444', isReference: true, order: 0 },
+    { id: 'acromion',          name: '肩峰', nameEn: 'Acromion', color: '#00C9A7', isReference: false, order: 1 },
+    { id: 'earlobe',           name: '耳垂', nameEn: 'Earlobe', color: '#2C7BE5', isReference: false, order: 2 },
+  ];
+
   // Frontal plane (posterior view) landmarks
   const POSTERIOR_LANDMARKS = [
     { id: 'base_center',        name: '足部中心', nameEn: 'Base Center', color: '#EF4444', isReference: true, order: 0 },
@@ -32,7 +40,9 @@ const AequumAnalysis = (() => {
   ];
 
   function getLandmarks(viewType) {
-    return viewType === 'posterior' ? POSTERIOR_LANDMARKS : SAGITTAL_LANDMARKS;
+    if (viewType === 'posterior') return POSTERIOR_LANDMARKS;
+    if (viewType === 'seated_sagittal') return SEATED_SAGITTAL_LANDMARKS;
+    return SAGITTAL_LANDMARKS;
   }
 
   // Backward compatibility alias
@@ -60,6 +70,9 @@ const AequumAnalysis = (() => {
       const left = landmarks.find(l => l.id === 'heel_left');
       const right = landmarks.find(l => l.id === 'heel_right');
       return (left && right) ? (left.x + right.x) / 2 : null;
+    } else if (viewType === 'seated_sagittal') {
+      const ref = landmarks.find(l => l.id === 'greater_trochanter');
+      return ref ? ref.x : null;
     } else {
       const ref = landmarks.find(l => l.id === 'ankle_forward');
       return ref ? ref.x : null;
@@ -84,6 +97,16 @@ const AequumAnalysis = (() => {
       if (heels.length === 0 || earlobes.length === 0) return null;
       bottomY = heels.reduce((acc, l) => acc + l.y, 0) / heels.length;
       topY = earlobes.reduce((acc, l) => acc + l.y, 0) / earlobes.length;
+    } else if (viewType === 'seated_sagittal') {
+      // Seated: greater_trochanter to earlobe ≈ 42% of standing height
+      const hip = landmarks.find(l => l.id === 'greater_trochanter');
+      const earlobe = landmarks.find(l => l.id === 'earlobe');
+      if (!hip || !earlobe) return null;
+      bottomY = hip.y;
+      topY = earlobe.y;
+      const trunkPx = Math.abs(bottomY - topY) / 0.42;
+      if (trunkPx === 0) return null;
+      return heightCm / trunkPx;
     } else {
       const ankle = landmarks.find(l => l.id === 'ankle_forward');
       const earlobe = landmarks.find(l => l.id === 'earlobe');
@@ -111,8 +134,13 @@ const AequumAnalysis = (() => {
 
     const defs = getLandmarks(viewType);
 
+    // Determine which landmark IDs serve as reference points for this view
+    const refIds = viewType === 'seated_sagittal'
+      ? ['greater_trochanter']
+      : ['ankle_forward', 'base_center'];
+
     return landmarks
-      .filter(l => l.id !== 'ankle_forward' && l.id !== 'base_center') // Reference points have 0 deviation
+      .filter(l => !refIds.includes(l.id)) // Reference points have 0 deviation
       .map(l => {
         const deviationPx = viewType === 'posterior' ? (l.x - plumbX) : (l.x - plumbX) * facingDirection;
         const deviationCm = scaleFactor ? deviationPx * scaleFactor : null;
@@ -947,38 +975,19 @@ const AequumAnalysis = (() => {
             <canvas id="radar-chart-canvas" width="220" height="220"></canvas>
           </div>
           <div class="rpt-advice">
-            <div class="advice-card">
-              <div class="advice-icon">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 19v-4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v4"></path><path d="M4 19h16v2H4z"></path><path d="M6 13V9a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v4"></path></svg>
-              </div>
-              <div class="advice-text">
-                <h5>ソファで足を上げて座る</h5>
-                <p>足を上げて座ると、骨盤が歪みやすく腰痛の原因になります。足を下ろすと腰・骨盤への負担を減らせます。</p>
-              </div>
-            </div>
-            <div class="advice-card">
-              <div class="advice-icon">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M8 8V6a4 4 0 0 1 8 0v2"></path></svg>
-              </div>
-              <div class="advice-text">
-                <h5>荷物を片側の肩だけで持つ</h5>
-                <p>片方の肩だけで荷物を持つと体が傾きやすくなり、肩や背中に負担が集中します。両肩でバランス良く持つ習慣をつけることが大切です。</p>
-              </div>
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px 16px; color:#aaa; text-align:center; border:2px dashed #e0e0e0; border-radius:12px; min-height:120px;">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5" style="margin-bottom:8px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <div style="font-size:14px; font-weight:bold; color:#999;">Coming Soon...</div>
+              <div style="font-size:11px; color:#bbb; margin-top:4px;">あなたの姿勢に合わせたアドバイスを準備中です</div>
             </div>
           </div>
         </div>
 
-        <div class="rpt-footer">
-          <div>
-            <h4>【魔法の3分】座ったままできる！反り腰改善＆骨盤メンテナンス</h4>
-            <div class="tags">
-              <span class="tag">反り腰改善</span><span class="tag">腰痛改善</span><span class="tag">姿勢矯正</span>
-              <span class="tag">ポッコリおなか解消</span><span class="tag">ヒップアップ</span><span class="tag">血行改善</span>
-            </div>
-          </div>
-          <div style="text-align:center; font-size:10px; font-weight:bold;">
-            QRを読んで今すぐ開始！
-            <div style="background:#000; width:60px; height:60px; margin: 4px auto 0;"></div>
+        <div class="rpt-footer" style="justify-content:center; text-align:center;">
+          <div style="display:flex; flex-direction:column; align-items:center; gap:8px; padding:8px 0; color:#aaa;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <h4 style="color:#999; font-size:13px;">おすすめエクササイズ — Coming Soon...</h4>
+            <p style="font-size:11px; color:#bbb; margin:0;">あなたの姿勢タイプに最適なエクササイズ動画を準備中です</p>
           </div>
         </div>
       </div>
@@ -1100,6 +1109,7 @@ const AequumAnalysis = (() => {
   return {
     LANDMARKS,
     SAGITTAL_LANDMARKS,
+    SEATED_SAGITTAL_LANDMARKS,
     POSTERIOR_LANDMARKS,
     getLandmarks,
     THRESHOLDS,

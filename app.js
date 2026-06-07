@@ -35,7 +35,9 @@
     // Orientation
     facingDirection: 1, // 1 for right-facing (forward=+X), -1 for left-facing
     // UI filters
-    timelineFilter: 'all', // 'all', 'sagittal', 'posterior'
+    timelineFilter: 'all', // 'all', 'sagittal', 'posterior', 'seated_sagittal'
+    // Posture
+    posture: 'standing', // 'standing' or 'seated'
   };
 
   // ── DOM Cache ────────────────────────────────────────
@@ -139,7 +141,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.64.4</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.65</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -187,7 +189,7 @@
         break;
       default:
         back.style.display = '';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.62</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.65</span>';
     }
   }
 
@@ -271,9 +273,23 @@
         if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
           DeviceOrientationEvent.requestPermission().catch(console.error);
         }
-        state.viewType = 'sagittal';
-        navigateTo('capture', { clientId: state.currentClient.id, capturePhase: 'sagittal' });
+        // Show posture selection modal
+        $('modal-posture-select').style.display = '';
       }
+    });
+
+    // Posture selection modal handlers
+    $('btn-posture-standing').addEventListener('click', () => {
+      $('modal-posture-select').style.display = 'none';
+      state.posture = 'standing';
+      state.viewType = 'sagittal';
+      navigateTo('capture', { clientId: state.currentClient.id, capturePhase: 'sagittal', posture: 'standing' });
+    });
+    $('btn-posture-seated').addEventListener('click', () => {
+      $('modal-posture-select').style.display = 'none';
+      state.posture = 'seated';
+      state.viewType = 'seated_sagittal';
+      navigateTo('capture', { clientId: state.currentClient.id, capturePhase: 'seated_sagittal', posture: 'seated' });
     });
 
     // Analysis Report Button (Patient wide)
@@ -572,8 +588,9 @@
       const date = new Date(s.capturedAt).toLocaleDateString('ja-JP', {
         year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
       });
-      const viewTypeStr = (s.viewType || 'sagittal') === 'posterior' ? '前額面' : '矢状面';
-      const vtColor = (s.viewType || 'sagittal') === 'posterior' ? '#A78BFA' : '#6C63FF';
+      const vt = s.viewType || 'sagittal';
+      const viewTypeStr = vt === 'posterior' ? '立位・前額面' : vt === 'seated_sagittal' ? '座位・矢状面' : '立位・矢状面';
+      const vtColor = vt === 'posterior' ? '#A78BFA' : vt === 'seated_sagittal' ? '#F59E0B' : '#6C63FF';
 
       const badges = (s.deviations || []).slice(0, 3).map(d => {
         const cls = d.status === 'ok' ? 'badge-ok' : d.status === 'warn' ? 'badge-warn' : 'badge-alert';
@@ -611,13 +628,16 @@
     const clientId = data.clientId;
     state.currentClient = await AequumDB.getClient(clientId);
     state.capturePhase = data.capturePhase || 'sagittal';
+    state.posture = data.posture || state.posture || 'standing';
     state.sagittalImageId = data.sagittalImageId || null;
     state.sagittalImageBlob = data.sagittalImageBlob || null;
 
     // Update instruction overlay
     const instruction = $('capture-instruction');
     if (instruction) {
-      if (state.capturePhase === 'sagittal') {
+      if (state.posture === 'seated') {
+        instruction.textContent = '座位: 矢状面（側面）を撮影';
+      } else if (state.capturePhase === 'sagittal') {
         instruction.textContent = '1/2: 矢状面（側面）を撮影';
       } else {
         instruction.textContent = '2/2: 前額面（背面）を撮影';
@@ -642,10 +662,20 @@
       // Reset input value to allow selecting the same file again if needed
       e.target.value = '';
 
-      if (state.capturePhase === 'sagittal') {
+      if (state.posture === 'seated') {
+        // Seated: go straight to analyze with single image
+        navigateTo('analyze', {
+          mode: 'new',
+          clientId: clientId,
+          imageBlob: blob,
+          imageId: imageId,
+          posture: 'seated',
+        });
+      } else if (state.capturePhase === 'sagittal') {
         navigateTo('capture', {
           clientId: clientId,
           capturePhase: 'posterior',
+          posture: 'standing',
           sagittalImageBlob: blob,
           sagittalImageId: imageId
         });
@@ -657,6 +687,7 @@
           sagittalImageId: state.sagittalImageId,
           posteriorImageBlob: blob,
           posteriorImageId: imageId,
+          posture: 'standing',
         });
       }
     };
@@ -794,6 +825,8 @@
 
       if (phase === 'posterior') {
         drawPosteriorSilhouette(ctx, silX, silY, silW, silH);
+      } else if (state.posture === 'seated') {
+        drawSeatedSilhouette(ctx, silX, silY, silW, silH);
       } else {
         drawSagittalSilhouette(ctx, silX, silY, silW, silH);
       }
@@ -914,6 +947,72 @@
     ctx.beginPath();
     ctx.roundRect(cx - legW / 2, legTop, legW, legH, [legW / 3]);
     ctx.fill(); ctx.stroke();
+  }
+
+  // ── Seated (side) silhouette ──
+  function drawSeatedSilhouette(ctx, x, y, w, h) {
+    const cx = x + w / 2;
+    // Head
+    const headR = w * 0.3;
+    ctx.beginPath();
+    ctx.arc(cx + w * 0.05, y + headR, headR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Neck
+    const neckTop = y + headR * 2;
+    const neckW = w * 0.2;
+    ctx.beginPath();
+    ctx.rect(cx - neckW / 2, neckTop, neckW, h * 0.04);
+    ctx.fill(); ctx.stroke();
+    // Torso (upright seated)
+    const torsoTop = neckTop + h * 0.04;
+    const torsoW = w * 0.55;
+    const torsoH = h * 0.38;
+    ctx.beginPath();
+    ctx.moveTo(cx - torsoW * 0.3, torsoTop);
+    ctx.quadraticCurveTo(cx + torsoW * 0.3, torsoTop + torsoH * 0.3, cx + torsoW * 0.25, torsoTop + torsoH * 0.6);
+    ctx.quadraticCurveTo(cx + torsoW * 0.15, torsoTop + torsoH, cx - torsoW * 0.1, torsoTop + torsoH);
+    ctx.quadraticCurveTo(cx - torsoW * 0.45, torsoTop + torsoH * 0.7, cx - torsoW * 0.35, torsoTop + torsoH * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Arm (hanging down slightly forward)
+    const armW = w * 0.13;
+    const armH = h * 0.25;
+    ctx.beginPath();
+    ctx.roundRect(cx + torsoW * 0.15, torsoTop + h * 0.06, armW, armH, [armW / 2]);
+    ctx.fill(); ctx.stroke();
+    // Hips/buttocks (on seat)
+    const hipTop = torsoTop + torsoH;
+    const hipW = w * 0.5;
+    const hipH = h * 0.08;
+    ctx.beginPath();
+    ctx.ellipse(cx - w * 0.05, hipTop + hipH * 0.3, hipW / 2, hipH, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // Thigh (horizontal, going forward)
+    const thighTop = hipTop + hipH * 0.3;
+    const thighW = w * 0.6;
+    const thighH = w * 0.2;
+    ctx.beginPath();
+    ctx.roundRect(cx - w * 0.1, thighTop, thighW, thighH, [thighH / 3]);
+    ctx.fill(); ctx.stroke();
+    // Lower leg (hanging down from knee)
+    const kneeX = cx - w * 0.1 + thighW;
+    const kneeY = thighTop + thighH * 0.5;
+    const lowerLegW = w * 0.18;
+    const lowerLegH = h * 0.28;
+    ctx.beginPath();
+    ctx.roundRect(kneeX - lowerLegW / 2, kneeY, lowerLegW, lowerLegH, [lowerLegW / 3]);
+    ctx.fill(); ctx.stroke();
+    // Seat surface line
+    ctx.beginPath();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.moveTo(cx - w * 0.8, hipTop + hipH);
+    ctx.lineTo(cx + w * 0.8, hipTop + hipH);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   function initGyroscope() {
@@ -1062,10 +1161,20 @@
 
     showToast('撮影完了');
 
-    if (state.capturePhase === 'sagittal') {
+    if (state.posture === 'seated') {
+      // Seated: go straight to analyze with single image
+      navigateTo('analyze', {
+        mode: 'new',
+        clientId: state.currentClient.id,
+        imageBlob: blob,
+        imageId: imageId,
+        posture: 'seated',
+      });
+    } else if (state.capturePhase === 'sagittal') {
       navigateTo('capture', {
         clientId: state.currentClient.id,
         capturePhase: 'posterior',
+        posture: 'standing',
         sagittalImageBlob: blob,
         sagittalImageId: imageId
       });
@@ -1077,6 +1186,7 @@
         sagittalImageId: state.sagittalImageId,
         posteriorImageBlob: blob,
         posteriorImageId: imageId,
+        posture: 'standing',
       });
     }
   }
@@ -1229,6 +1339,24 @@
         { id: 'earlobe_right', name: '右耳垂', x: earRight.x, y: earRight.y + (shoulderRight.y - earRight.y) * 0.1 },
       ].map(lm => ({ ...lm, isAutoDetected: true, isManuallyAdjusted: false }));
 
+    } else if (state.viewType === 'seated_sagittal') {
+      // Seated sagittal: only 3 landmarks (hip, shoulder, ear)
+      const mEar = toCanvas(mps[useLeft ? 7 : 8]);
+      const mShoulder = toCanvas(mps[useLeft ? 11 : 12]);
+      const mHip = toCanvas(mps[useLeft ? 23 : 24]);
+
+      // Estimate forward direction from shoulder→ear direction
+      const forwardX = Math.sign(mEar.x - mShoulder.x) || 1;
+      const mEarlobe = { x: mEar.x, y: mEar.y + (mShoulder.y - mEar.y) * 0.1 };
+
+      state.facingDirection = forwardX;
+
+      state.placedLandmarks = [
+        { id: 'greater_trochanter', name: '大転子', x: mHip.x, y: mHip.y },
+        { id: 'acromion', name: '肩峰', x: mShoulder.x, y: mShoulder.y },
+        { id: 'earlobe', name: '耳垂', x: mEarlobe.x, y: mEarlobe.y }
+      ].map(lm => ({ ...lm, isAutoDetected: true, isManuallyAdjusted: false }));
+
     } else {
       const mEar = toCanvas(mps[useLeft ? 7 : 8]);
       const mShoulder = toCanvas(mps[useLeft ? 11 : 12]);
@@ -1299,6 +1427,9 @@
       state.currentClient = await AequumDB.getClient(session.clientId);
     } else {
       // New session from capture
+      // Restore posture from data if provided
+      if (data.posture) state.posture = data.posture;
+
       if (data.mode === 'dual_new') {
         state.dualMode = true;
         state.dualPhase = 'sagittal';
@@ -1315,6 +1446,10 @@
           imageId: data.imageId,
           clientId: data.clientId,
         };
+        // Set viewType for seated
+        if (state.posture === 'seated') {
+          state.viewType = 'seated_sagittal';
+        }
         $('btn-save-analysis').innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> 保存';
       }
 
@@ -1844,7 +1979,7 @@
     }).join('');
 
     // Reference landmark
-    const refId = state.viewType === 'posterior' ? 'base_center' : 'ankle_forward';
+    const refId = state.viewType === 'posterior' ? 'base_center' : state.viewType === 'seated_sagittal' ? 'greater_trochanter' : 'ankle_forward';
     const refLm = state.placedLandmarks.find(l => l.id === refId);
     if (refLm) {
       const defs = AequumAnalysis.getLandmarks(state.viewType);
