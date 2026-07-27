@@ -141,7 +141,7 @@
     switch (page) {
       case 'clients':
         back.style.display = 'none';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.65</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.66</span>';
         actions.innerHTML = `
           <button id="btn-settings" class="header-btn" aria-label="設定">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -189,7 +189,7 @@
         break;
       default:
         back.style.display = '';
-        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.65</span>';
+        title.innerHTML = 'Aequum<span style="font-size:0.45em; font-weight:400; opacity:0.5; margin-left:6px; vertical-align:middle;">ver0.66</span>';
     }
   }
 
@@ -653,7 +653,28 @@
       const file = e.target.files[0];
       if (!file) return;
 
-      const blob = file;
+      // Draw grid onto uploaded image
+      const img = new Image();
+      const fileUrl = URL.createObjectURL(file);
+      const blob = await new Promise((resolve, reject) => {
+        img.onload = () => {
+          const cvs = document.createElement('canvas');
+          cvs.width = img.naturalWidth;
+          cvs.height = img.naturalHeight;
+          const c = cvs.getContext('2d');
+          c.drawImage(img, 0, 0);
+          drawGridLines(c, cvs.width, cvs.height, {
+            divisions: 6,
+            color: 'rgba(255, 255, 255, 0.25)',
+            lineWidth: 2,
+            dashPattern: [10, 8],
+          });
+          cvs.toBlob(b => resolve(b), 'image/jpeg', 0.92);
+          URL.revokeObjectURL(fileUrl);
+        };
+        img.onerror = () => { URL.revokeObjectURL(fileUrl); reject(new Error('Image load failed')); };
+        img.src = fileUrl;
+      });
       const imageId = await AequumDB.saveImage(blob);
 
       cleanupResources();
@@ -732,6 +753,47 @@
     }
   }
 
+  /**
+   * Draw grid lines on any canvas context.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} w - canvas width
+   * @param {number} h - canvas height
+   * @param {object} opts - { divisions, color, lineWidth, dashPattern }
+   */
+  function drawGridLines(ctx, w, h, opts = {}) {
+    const {
+      divisions = 6,
+      color = 'rgba(255, 255, 255, 0.35)',
+      lineWidth = 1,
+      dashPattern = [6, 5],
+    } = opts;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.setLineDash(dashPattern);
+
+    // Vertical lines
+    for (let i = 1; i < divisions; i++) {
+      const x = Math.round(w * i / divisions);
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+
+    // Horizontal lines
+    for (let i = 1; i < divisions; i++) {
+      const y = Math.round(h * i / divisions);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
   function drawCameraGrid() {
     const canvas = $('grid-overlay');
     const container = $('camera-container');
@@ -745,26 +807,18 @@
       const h = canvas.height;
       ctx.clearRect(0, 0, w, h);
 
-      // ── Draw crosshair lines ──
+      // ── Draw grid lines ──
+      drawGridLines(ctx, w, h, {
+        divisions: 6,
+        color: 'rgba(255, 255, 255, 0.35)',
+        lineWidth: 1,
+        dashPattern: [6, 5],
+      });
+
+      // ── Center indicator ──
       const cx = w * 0.5;
-      const cy = h * 0.52; // slightly below center for body alignment
+      const cy = h * 0.52;
 
-      // Vertical dashed line
-      ctx.setLineDash([8, 6]);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(cx, 0);
-      ctx.lineTo(cx, h);
-      ctx.stroke();
-
-      // Horizontal dashed line
-      ctx.beginPath();
-      ctx.moveTo(0, cy);
-      ctx.lineTo(w, cy);
-      ctx.stroke();
-
-      // Center crosshair circle — color changes based on level state
       const levelState = state._levelState || 'unknown';
       let circleColor, dotColor, circleGlow;
       switch (levelState) {
@@ -1149,6 +1203,14 @@
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0);
+
+    // Overlay grid onto captured image
+    drawGridLines(ctx, canvas.width, canvas.height, {
+      divisions: 6,
+      color: 'rgba(255, 255, 255, 0.25)',
+      lineWidth: 2,
+      dashPattern: [10, 8],
+    });
 
     // Convert to blob
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));

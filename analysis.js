@@ -784,11 +784,10 @@ const AequumAnalysis = (() => {
         .rpt-logo { font-size: 20px; font-weight: 700; color: #555; display: flex; align-items: center; gap: 8px; }
         .rpt-logo-icon { width: 40px; height: 40px; background: #e0e0e0; border-radius: 8px; display:flex; align-items:center; justify-content:center; color:white; }
         .rpt-title { font-size: 20px; font-weight: bold; color: #00A88D; margin-top: 4px; }
-        .rpt-score-band { display: flex; gap: 2px; height: 48px; border-radius: 4px; overflow: hidden; font-size: 10px; color: white; text-align: center; line-height: 1.2; font-weight:bold; }
+        .rpt-score-band { display: flex; gap: 2px; height: 48px; border-radius: 4px; overflow: hidden; font-size: 11px; color: white; text-align: center; line-height: 1.2; font-weight:bold; }
         .score-box { flex: 1; padding: 4px; display:flex; align-items:center; justify-content:center; }
-        .sb-1 { background: #E57373; opacity: 0.6; } .sb-2 { background: #E57373; opacity: 0.8; }
-        .sb-3 { background: #E57373; } .sb-4 { background: #81C784; } .sb-5 { background: #00A88D; }
-        .rpt-score-large { background: #fdf5f5; border: 2px solid #E57373; border-radius: 4px; padding: 8px 16px; text-align: center; color: #E57373; }
+        .sb-care { background: #E57373; } .sb-almost { background: #F5A623; } .sb-good { background: #00A88D; }
+        .rpt-score-large { border-radius: 4px; padding: 8px 16px; text-align: center; }
         .rpt-score-large .num { font-size: 36px; font-weight: bold; line-height: 1; margin-right: 4px; }
         
         .rpt-body { display: flex; gap: 24px; margin-bottom: 24px; }
@@ -887,16 +886,15 @@ const AequumAnalysis = (() => {
               <div>
                 <span style="font-size:10px; color:#999;">姿勢スコア基準表</span>
                 <div class="rpt-score-band" style="width:280px;">
-                  <div class="score-box sb-1">~59<br>深刻な歪み</div>
-                  <div class="score-box sb-2">~69<br>要ケア</div>
-                  <div class="score-box sb-3">~79<br>惜しい</div>
-                  <div class="score-box sb-4">~89<br>良い姿勢</div>
-                  <div class="score-box sb-5">~100<br>美姿勢</div>
+                  <div class="score-box sb-care">~69<br>要改善</div>
+                  <div class="score-box sb-almost">70~84<br>やや偏位あり</div>
+                  <div class="score-box sb-good">85~100<br>良好</div>
                 </div>
               </div>
-              <div class="rpt-score-large">
-                <div style="font-size:10px; text-align:left; color:#E57373;">姿勢スコア</div>
+              <div class="rpt-score-large" style="background:${score >= 85 ? '#f0faf7' : score >= 70 ? '#fef9f0' : '#fdf5f5'}; border:2px solid ${score >= 85 ? '#00A88D' : score >= 70 ? '#F5A623' : '#E57373'}; color:${score >= 85 ? '#00A88D' : score >= 70 ? '#F5A623' : '#E57373'};">
+                <div style="font-size:10px; text-align:left;">姿勢スコア</div>
                 <div><span class="num">${score}</span><span style="font-size:12px;">/100点</span></div>
+                <div style="font-size:11px; font-weight:bold; margin-top:2px;">${score >= 85 ? '良好 ✨' : score >= 70 ? 'やや偏位あり' : '要改善 ⚠️'}</div>
               </div>
             </div>
           </div>
