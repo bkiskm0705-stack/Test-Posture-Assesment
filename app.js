@@ -664,7 +664,7 @@
           const c = cvs.getContext('2d');
           c.drawImage(img, 0, 0);
           drawGridLines(c, cvs.width, cvs.height, {
-            divisions: 6,
+            divisions: 12,
             color: 'rgba(255, 255, 255, 0.25)',
             lineWidth: 2,
             dashPattern: [10, 8],
@@ -809,7 +809,7 @@
 
       // ── Draw grid lines ──
       drawGridLines(ctx, w, h, {
-        divisions: 6,
+        divisions: 12,
         color: 'rgba(255, 255, 255, 0.35)',
         lineWidth: 1,
         dashPattern: [6, 5],
@@ -1206,7 +1206,7 @@
 
     // Overlay grid onto captured image
     drawGridLines(ctx, canvas.width, canvas.height, {
-      divisions: 6,
+      divisions: 12,
       color: 'rgba(255, 255, 255, 0.25)',
       lineWidth: 2,
       dashPattern: [10, 8],

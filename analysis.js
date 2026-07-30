@@ -750,7 +750,7 @@ const AequumAnalysis = (() => {
       if (d.status === 'alert') score -= 4;
       else if (d.status === 'warn') score -= 2;
     });
-    score = Math.max(0, score);
+    score = Math.max(50, score);
 
     let tendencyTitle = '良好な姿勢バランスです';
     let tendencyDesc = '全体的に負担の少ない良い姿勢を保てています。';
