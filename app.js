@@ -762,11 +762,14 @@
    */
   function drawGridLines(ctx, w, h, opts = {}) {
     const {
-      divisions = 6,
+      divisions = 12,
       color = 'rgba(255, 255, 255, 0.35)',
       lineWidth = 1,
       dashPattern = [6, 5],
     } = opts;
+
+    // Use shorter side to calculate spacing so cells are always square
+    const spacing = Math.min(w, h) / divisions;
 
     ctx.save();
     ctx.strokeStyle = color;
@@ -774,20 +777,20 @@
     ctx.setLineDash(dashPattern);
 
     // Vertical lines
-    for (let i = 1; i < divisions; i++) {
-      const x = Math.round(w * i / divisions);
+    for (let x = spacing; x < w; x += spacing) {
+      const rx = Math.round(x);
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
+      ctx.moveTo(rx, 0);
+      ctx.lineTo(rx, h);
       ctx.stroke();
     }
 
     // Horizontal lines
-    for (let i = 1; i < divisions; i++) {
-      const y = Math.round(h * i / divisions);
+    for (let y = spacing; y < h; y += spacing) {
+      const ry = Math.round(y);
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
+      ctx.moveTo(0, ry);
+      ctx.lineTo(w, ry);
       ctx.stroke();
     }
 
