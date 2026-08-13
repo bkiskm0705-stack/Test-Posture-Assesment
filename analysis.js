@@ -813,10 +813,6 @@ const AequumAnalysis = (() => {
         .rpt-symptoms h4 { color: #00A88D; margin: 0 0 8px 0; font-size: 13px; }
         .rpt-symptoms p { color: #E57373; font-weight: bold; margin: 0; line-height: 1.6; }
         
-        .rpt-knee { background: #f5f5f5; padding: 12px; text-align: center; font-weight: bold; margin-top: 16px; border-radius: 4px; }
-        .rpt-knee-val { display: flex; justify-content: space-around; align-items: center; margin-top: 12px; }
-        .knee-num { font-size: 32px; color: #E57373; }
-        .knee-num.good { color: #00A88D; }
         
         .rpt-bottom-banner { background: #00A88D; color: white; font-weight: bold; text-align: center; padding: 8px; border-radius: 20px; margin-bottom: 16px; }
         .rpt-bottom { display: flex; gap: 24px; align-items: center; margin-bottom: 24px; }
@@ -853,7 +849,6 @@ const AequumAnalysis = (() => {
           .rpt-illus-row { flex-direction: column; align-items: center; }
           .rpt-illus { width: 80px; }
           .rpt-symptoms { text-align: left; padding: 12px; }
-          .knee-num { font-size: 24px; }
           .rpt-bottom-banner { font-size: 13px; padding: 6px; }
           .rpt-bottom { flex-direction: column; gap: 16px; }
           .rpt-radar { width: 100%; height: 200px; }
