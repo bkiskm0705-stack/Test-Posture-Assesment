@@ -954,11 +954,6 @@ const AequumAnalysis = (() => {
               </div>
             </div>
             
-            <div class="rpt-knee">膝の分析</div>
-            <div class="rpt-knee-val">
-              <div><div style="font-size:11px; color:#666;">右</div><div class="knee-num ${kneeAngleRight > 175 ? 'good':''}">${Math.abs(kneeAngleRight)}<span>度</span></div></div>
-              <div><div style="font-size:11px; color:#666;">左</div><div class="knee-num ${kneeAngleLeft > 175 ? 'good':''}">${Math.abs(kneeAngleLeft)}<span>度</span></div></div>
-            </div>
           </div>
         </div>
 
