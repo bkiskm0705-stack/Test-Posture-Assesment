@@ -55,6 +55,77 @@ const AequumAnalysis = (() => {
     // > 5cm → Red (significant deviation)
   };
 
+  // ── Skeleton Connection Definitions ─────────────────
+  // Defines which landmarks to connect with lines for each view type
+
+  // Sagittal (standing lateral): ankle → knee → hip → shoulder → ear
+  const SAGITTAL_SKELETON = [
+    ['ankle_forward', 'knee_forward'],
+    ['knee_forward', 'greater_trochanter'],
+    ['greater_trochanter', 'acromion'],
+    ['acromion', 'earlobe'],
+  ];
+
+  // Seated sagittal: hip → shoulder → ear
+  const SEATED_SAGITTAL_SKELETON = [
+    ['greater_trochanter', 'acromion'],
+    ['acromion', 'earlobe'],
+  ];
+
+  // Posterior (frontal plane): symmetrical connections
+  const POSTERIOR_SKELETON = [
+    // Left leg
+    ['heel_left', 'popliteal_left'],
+    ['popliteal_left', 'psis_left'],
+    // Right leg
+    ['heel_right', 'popliteal_right'],
+    ['popliteal_right', 'psis_right'],
+    // Pelvis bridge
+    ['psis_left', 'psis_right'],
+    // Trunk (left/right)
+    ['psis_left', 'acromion_left'],
+    ['psis_right', 'acromion_right'],
+    // Shoulder bridge
+    ['acromion_left', 'acromion_right'],
+    // Head (left/right)
+    ['acromion_left', 'earlobe_left'],
+    ['acromion_right', 'earlobe_right'],
+  ];
+
+  function getSkeletonConnections(viewType) {
+    if (viewType === 'posterior') return POSTERIOR_SKELETON;
+    if (viewType === 'seated_sagittal') return SEATED_SAGITTAL_SKELETON;
+    return SAGITTAL_SKELETON;
+  }
+
+  // ── Segment Definitions (for tilt/deviation display) ─
+  // Each segment defines a body region with paired landmarks for tilt calculation
+
+  const SAGITTAL_SEGMENTS = [
+    { name: '頭部', pair: ['acromion', 'earlobe'] },
+    { name: '肩',   pair: ['greater_trochanter', 'acromion'] },
+    { name: '腰',   pair: ['knee_forward', 'greater_trochanter'] },
+    { name: '膝',   pair: ['ankle_forward', 'knee_forward'] },
+  ];
+
+  const SEATED_SAGITTAL_SEGMENTS = [
+    { name: '頭部', pair: ['acromion', 'earlobe'] },
+    { name: '肩',   pair: ['greater_trochanter', 'acromion'] },
+  ];
+
+  const POSTERIOR_SEGMENTS = [
+    { name: '頭',   pairL: 'earlobe_left',  pairR: 'earlobe_right' },
+    { name: '肩',   pairL: 'acromion_left',  pairR: 'acromion_right' },
+    { name: '腰',   pairL: 'psis_left',      pairR: 'psis_right' },
+    { name: '膝',   pairL: 'popliteal_left',  pairR: 'popliteal_right' },
+  ];
+
+  function getSegments(viewType) {
+    if (viewType === 'posterior') return POSTERIOR_SEGMENTS;
+    if (viewType === 'seated_sagittal') return SEATED_SAGITTAL_SEGMENTS;
+    return SAGITTAL_SEGMENTS;
+  }
+
   // ── Plumb Line Calculation ───────────────────────────
   // Kendall's plumb line: vertical line through slightly anterior
   // to the lateral malleolus, extending upward
@@ -425,6 +496,223 @@ const AequumAnalysis = (() => {
       ctx.lineTo(width, y);
       ctx.stroke();
     }
+
+    ctx.restore();
+  }
+
+  // ── Skeleton Drawing ─────────────────────────────────
+
+  /**
+   * Draw skeleton lines connecting landmarks
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array} landmarks - Placed landmarks [{id, x, y}]
+   * @param {string} viewType - 'sagittal' | 'posterior' | 'seated_sagittal'
+   * @param {object} options - { color, lineWidth }
+   */
+  function drawSkeleton(ctx, landmarks, viewType, options = {}) {
+    const { color = 'rgba(255, 255, 255, 0.85)', lineWidth = 2.5 } = options;
+    const connections = getSkeletonConnections(viewType);
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.setLineDash([]);
+
+    connections.forEach(([fromId, toId]) => {
+      const from = landmarks.find(l => l.id === fromId);
+      const to = landmarks.find(l => l.id === toId);
+      if (from && to) {
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+      }
+    });
+
+    ctx.restore();
+  }
+
+  // ── Segment Tilt Calculation ─────────────────────────
+
+  /**
+   * Calculate tilt and deviation for each body segment
+   * @param {Array} landmarks - Placed landmarks
+   * @param {string} viewType
+   * @param {number|null} scaleFactor - cm per pixel
+   * @param {number} facingDirection - 1 or -1
+   * @returns {Array} [{name, tiltDeg, deviationCm, deviationPercent, status, midX, midY}]
+   */
+  function calculateSegmentTilts(landmarks, viewType, scaleFactor, facingDirection = 1) {
+    const segments = getSegments(viewType);
+    const results = [];
+
+    if (viewType === 'posterior') {
+      // Frontal plane: calculate tilt between left/right paired landmarks
+      segments.forEach(seg => {
+        const left = landmarks.find(l => l.id === seg.pairL);
+        const right = landmarks.find(l => l.id === seg.pairR);
+        if (!left || !right) return;
+
+        // Tilt: angle from horizontal (0° = perfectly level)
+        const dx = right.x - left.x;
+        const dy = right.y - left.y;
+        const tiltDeg = Math.round(Math.atan2(dy, Math.abs(dx)) * (180 / Math.PI) * 10) / 10;
+
+        // Deviation: midpoint offset from plumb line
+        const midX = (left.x + right.x) / 2;
+        const plumbX = getPlumbLineX(landmarks, viewType);
+        let deviationCm = null;
+        let deviationPercent = null;
+        if (plumbX !== null && scaleFactor) {
+          deviationCm = Math.round((midX - plumbX) * scaleFactor * 10) / 10;
+          // Deviation as % of shoulder width (use acromion pair as reference width)
+          const acrL = landmarks.find(l => l.id === 'acromion_left');
+          const acrR = landmarks.find(l => l.id === 'acromion_right');
+          if (acrL && acrR) {
+            const refWidth = Math.abs(acrR.x - acrL.x);
+            if (refWidth > 0) {
+              deviationPercent = Math.round(Math.abs(midX - plumbX) / refWidth * 100);
+            }
+          }
+        }
+
+        const absTilt = Math.abs(tiltDeg);
+        let status = 'ok';
+        if (absTilt > 3.0) status = 'alert';
+        else if (absTilt > 1.5) status = 'warn';
+
+        results.push({ name: seg.name, tiltDeg, deviationCm, deviationPercent, status, midX, midY: (left.y + right.y) / 2 });
+      });
+    } else {
+      // Sagittal plane: deviation from plumb line for each segment
+      const plumbX = getPlumbLineX(landmarks, viewType);
+
+      segments.forEach(seg => {
+        const bottom = landmarks.find(l => l.id === seg.pair[0]);
+        const top = landmarks.find(l => l.id === seg.pair[1]);
+        if (!bottom || !top) return;
+
+        // Tilt: angle of segment from vertical (0° = perfectly vertical)
+        const dx = (top.x - bottom.x) * facingDirection;
+        const dy = bottom.y - top.y; // Invert Y for screen coords
+        const angleFromVertical = Math.round(Math.atan2(Math.abs(dx), dy) * (180 / Math.PI) * 10) / 10;
+        const tiltDeg = dx >= 0 ? angleFromVertical : -angleFromVertical;
+
+        // Deviation of the top landmark from plumb line
+        let deviationCm = null;
+        let deviationPercent = null;
+        if (plumbX !== null && scaleFactor) {
+          deviationCm = Math.round((top.x - plumbX) * facingDirection * scaleFactor * 10) / 10;
+          // As percentage of segment length
+          const segLen = Math.sqrt((top.x - bottom.x) ** 2 + (top.y - bottom.y) ** 2);
+          if (segLen > 0) {
+            deviationPercent = Math.round(Math.abs(top.x - plumbX) / segLen * 100);
+          }
+        }
+
+        const absDevCm = deviationCm !== null ? Math.abs(deviationCm) : null;
+        let status = 'unknown';
+        if (absDevCm !== null) {
+          if (absDevCm <= THRESHOLDS.ok) status = 'ok';
+          else if (absDevCm <= THRESHOLDS.warn) status = 'warn';
+          else status = 'alert';
+        }
+
+        const midX = (bottom.x + top.x) / 2;
+        const midY = (bottom.y + top.y) / 2;
+        results.push({ name: seg.name, tiltDeg, deviationCm, deviationPercent, status, midX, midY });
+      });
+    }
+
+    return results;
+  }
+
+  // ── Segment Info Drawing ─────────────────────────────
+
+  /**
+   * Draw segment tilt/deviation info on canvas
+   * Displays body part name, tilt angle, and deviation for each segment
+   */
+  function drawSegmentInfo(ctx, landmarks, viewType, scaleFactor, facingDirection = 1, canvasWidth = 0) {
+    const tilts = calculateSegmentTilts(landmarks, viewType, scaleFactor, facingDirection);
+    if (tilts.length === 0) return;
+
+    ctx.save();
+
+    tilts.forEach((seg, i) => {
+      const statusColor = seg.status === 'ok' ? '#00C9A7' :
+                          seg.status === 'warn' ? '#FFD93D' : '#FF6B6B';
+
+      // Position the info badge to the side of the segment
+      let badgeX, badgeY;
+
+      if (viewType === 'posterior') {
+        badgeX = Math.max(8, seg.midX - 140);
+        badgeY = seg.midY;
+      } else {
+        badgeX = seg.midX + 30;
+        badgeY = seg.midY;
+      }
+
+      // Build info text lines
+      const lines = [];
+      lines.push(seg.name);
+
+      if (viewType === 'posterior' && seg.tiltDeg !== undefined) {
+        lines.push(`傾き ${seg.tiltDeg > 0 ? '+' : ''}${seg.tiltDeg}°`);
+      }
+
+      if (seg.deviationCm !== null) {
+        const sign = seg.deviationCm > 0 ? '+' : '';
+        lines.push(`ズレ ${sign}${seg.deviationCm}cm`);
+      }
+      if (seg.deviationPercent !== null) {
+        lines.push(`(${seg.deviationPercent}%)`);
+      }
+
+      // Calculate badge dimensions
+      ctx.font = 'bold 11px Inter, Noto Sans JP, sans-serif';
+      const nameWidth = ctx.measureText(lines[0]).width;
+      ctx.font = '10px Inter, Noto Sans JP, sans-serif';
+      const maxDetailWidth = lines.slice(1).reduce((max, l) => Math.max(max, ctx.measureText(l).width), 0);
+      const badgeW = Math.max(nameWidth, maxDetailWidth) + 16;
+      const lineH = 15;
+      const badgeH = lines.length * lineH + 8;
+
+      // Badge background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(badgeX - 4, badgeY - badgeH / 2, badgeW, badgeH, 5);
+        ctx.fill();
+      } else {
+        ctx.fillRect(badgeX - 4, badgeY - badgeH / 2, badgeW, badgeH);
+      }
+
+      // Status color bar on left side
+      ctx.fillStyle = statusColor;
+      ctx.fillRect(badgeX - 4, badgeY - badgeH / 2, 3, badgeH);
+
+      // Text
+      let ty = badgeY - badgeH / 2 + lineH;
+      ctx.textAlign = 'left';
+
+      // Segment name (bold)
+      ctx.font = 'bold 11px Inter, Noto Sans JP, sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(lines[0], badgeX + 4, ty);
+      ty += lineH;
+
+      // Detail lines
+      ctx.font = '10px Inter, Noto Sans JP, sans-serif';
+      for (let j = 1; j < lines.length; j++) {
+        ctx.fillStyle = j === 1 ? statusColor : 'rgba(255,255,255,0.7)';
+        ctx.fillText(lines[j], badgeX + 4, ty);
+        ty += lineH;
+      }
+    });
 
     ctx.restore();
   }
@@ -1116,6 +1404,15 @@ const AequumAnalysis = (() => {
     drawTrendChart,
     generateReportHTML,
     generateCombinedReportHTML,
-    drawRadarChart
+    drawRadarChart,
+    // Skeleton & Segment display
+    drawSkeleton,
+    calculateSegmentTilts,
+    drawSegmentInfo,
+    getSkeletonConnections,
+    getSegments,
+    SAGITTAL_SKELETON,
+    SEATED_SAGITTAL_SKELETON,
+    POSTERIOR_SKELETON,
   };
 })();

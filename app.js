@@ -6,7 +6,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '0.69';
+  const APP_VERSION = '0.69.01';
 
   // ── State ────────────────────────────────────────────
   const state = {
@@ -1930,6 +1930,11 @@
       }
     }
 
+    // Draw skeleton connections (landmark-to-landmark lines)
+    if (state.placedLandmarks.length >= 2) {
+      AequumAnalysis.drawSkeleton(ctx, state.placedLandmarks, state.viewType);
+    }
+
     // Draw landmarks
     const allDeviations = state.showPlumbLine ?
       AequumAnalysis.calculateDeviations(state.placedLandmarks, state.scaleFactor, state.facingDirection, state.viewType) : [];
@@ -2006,6 +2011,11 @@
         ctx.restore();
       }
     });
+
+    // Draw segment tilt/deviation info badges
+    if (state.showPlumbLine && state.placedLandmarks.length >= 2) {
+      AequumAnalysis.drawSegmentInfo(ctx, state.placedLandmarks, state.viewType, state.scaleFactor, state.facingDirection, width);
+    }
 
     // Restore transform
     ctx.restore();
