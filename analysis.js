@@ -340,7 +340,7 @@ const AequumAnalysis = (() => {
    * Draw a single landmark point on canvas
    */
   function drawLandmark(ctx, landmark, options = {}) {
-    const { radius = 8, showLabel = true, selected = false, viewType = 'sagittal', deviation = null } = options;
+    const { radius = 8, showLabel = true, selected = false, viewType = 'sagittal', deviation = null, lineWidth = null } = options;
     const defs = getLandmarks(viewType);
     const def = defs.find(d => d.id === landmark.id);
     const color = def ? def.color : '#ffffff';
@@ -355,16 +355,19 @@ const AequumAnalysis = (() => {
       ctx.fill();
     }
 
+    const ringW = lineWidth || 2;
+
     // Outer ring
     ctx.beginPath();
     ctx.arc(landmark.x, landmark.y, radius, 0, Math.PI * 2);
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = ringW;
     ctx.stroke();
 
     // Inner fill
+    const innerRadius = Math.max(1, radius - ringW - 1);
     ctx.beginPath();
-    ctx.arc(landmark.x, landmark.y, radius - 3, 0, Math.PI * 2);
+    ctx.arc(landmark.x, landmark.y, innerRadius, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.globalAlpha = 0.8;
     ctx.fill();
@@ -1008,6 +1011,108 @@ const AequumAnalysis = (() => {
     `;
   }
 
+  // ── Report Annotated Image Generation ────────────────
+  /**
+   * Render an image with skeleton connections and landmark points (without any text labels) for reports.
+   * Returns a Data URL string.
+   */
+  async function renderReportAnnotatedImage(imageBlob, landmarks, viewType = 'sagittal') {
+    if (!imageBlob) return null;
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      const url = URL.createObjectURL(imageBlob);
+
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+
+        const naturalW = img.naturalWidth || img.width;
+        const naturalH = img.naturalHeight || img.height;
+
+        // Cap resolution for performance and crisp rendering (max dimension: 1200px)
+        const maxDim = 1200;
+        let width = naturalW;
+        let height = naturalH;
+        if (Math.max(width, height) > maxDim) {
+          const ratio = maxDim / Math.max(width, height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+
+        // 1. Draw base image
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // If no landmarks, return base image
+        if (!landmarks || landmarks.length === 0) {
+          resolve(canvas.toDataURL('image/jpeg', 0.92));
+          return;
+        }
+
+        // 2. Map landmarks to canvas coordinates
+        // Filter out reference-only point 'base_center' so only anatomical skeleton landmarks remain
+        const mappedLandmarks = landmarks
+          .filter(l => l.id !== 'base_center')
+          .map(l => {
+            let x, y;
+            if (l.nx !== undefined && l.ny !== undefined) {
+              x = l.nx * width;
+              y = l.ny * height;
+            } else if (naturalW > 0 && l.x <= naturalW) {
+              x = (l.x / naturalW) * width;
+              y = (l.y / naturalH) * height;
+            } else {
+              x = l.x;
+              y = l.y;
+            }
+            return { ...l, x, y };
+          });
+
+        // 3. Scaling parameters relative to reference width (~360px)
+        const refScale = Math.max(1, width / 360);
+        const lineWidth = 3 * refScale;
+        const radius = 6 * refScale;
+        const landmarkLineWidth = Math.max(2, refScale * 1.6);
+
+        // 4. Draw skeleton connections (white clean lines connecting landmarks)
+        if (mappedLandmarks.length >= 2) {
+          ctx.save();
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+          ctx.shadowBlur = 3 * refScale;
+          drawSkeleton(ctx, mappedLandmarks, viewType, {
+            color: 'rgba(255, 255, 255, 0.92)',
+            lineWidth: lineWidth
+          });
+          ctx.restore();
+        }
+
+        // 5. Draw landmark points (circle points only, showLabel: false -> no PSIS or other text)
+        mappedLandmarks.forEach(lm => {
+          drawLandmark(ctx, lm, {
+            radius: radius,
+            showLabel: false, // NO text labels (PSIS, etc.)
+            selected: false,
+            viewType: viewType,
+            lineWidth: landmarkLineWidth
+          });
+        });
+
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+
+      img.src = url;
+    });
+  }
+
   // ── Daily Combined Report Generation ────────────────
   async function generateCombinedReportHTML(client, sagittalSession, posteriorSession, dateStr) {
     let score = 100;
@@ -1056,13 +1161,27 @@ const AequumAnalysis = (() => {
     let sagHtml = '<div class="empty-img">側面データなし</div>';
     if (sagittalSession && sagittalSession.imageId) {
       const blob = await AequumDB.getImage(sagittalSession.imageId);
-      if (blob) sagHtml = `<img src="${URL.createObjectURL(blob)}" class="report-img" />`;
+      if (blob) {
+        const rendered = await renderReportAnnotatedImage(
+          blob,
+          sagittalSession.landmarks || [],
+          sagittalSession.viewType || 'sagittal'
+        );
+        sagHtml = `<img src="${rendered || URL.createObjectURL(blob)}" class="report-img" alt="側面姿勢画像" />`;
+      }
     }
 
     let posHtml = '<div class="empty-img">背面データなし</div>';
     if (posteriorSession && posteriorSession.imageId) {
       const blob = await AequumDB.getImage(posteriorSession.imageId);
-      if (blob) posHtml = `<img src="${URL.createObjectURL(blob)}" class="report-img" />`;
+      if (blob) {
+        const rendered = await renderReportAnnotatedImage(
+          blob,
+          posteriorSession.landmarks || [],
+          posteriorSession.viewType || 'posterior'
+        );
+        posHtml = `<img src="${rendered || URL.createObjectURL(blob)}" class="report-img" alt="背面姿勢画像" />`;
+      }
     }
 
     return `
@@ -1081,8 +1200,8 @@ const AequumAnalysis = (() => {
         .rpt-body { display: flex; gap: 24px; margin-bottom: 24px; }
         .rpt-left { flex: 0 0 380px; }
         .rpt-images { display: flex; gap: 8px; height: 320px; margin-bottom: 16px; }
-        .rpt-img-wrap { flex: 1; background: #f5f5f5; border-radius: 4px; overflow: hidden; position: relative;}
-        .report-img { width: 100%; height: 100%; object-fit: cover; }
+        .rpt-img-wrap { flex: 1; background: #1e222d; border-radius: 4px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; }
+        .report-img { width: 100%; height: 100%; object-fit: contain; }
         .empty-img { width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#aaa; font-size:12px; }
         
         .rpt-score-rows { display: flex; flex-direction: column; gap: 8px; }
@@ -1404,6 +1523,7 @@ const AequumAnalysis = (() => {
     drawTrendChart,
     generateReportHTML,
     generateCombinedReportHTML,
+    renderReportAnnotatedImage,
     drawRadarChart,
     // Skeleton & Segment display
     drawSkeleton,

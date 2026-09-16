@@ -6,7 +6,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '0.69.01';
+  const APP_VERSION = '0.69.02';
 
   // ── State ────────────────────────────────────────────
   const state = {
@@ -2012,11 +2012,6 @@
       }
     });
 
-    // Draw segment tilt/deviation info badges
-    if (state.showPlumbLine && state.placedLandmarks.length >= 2) {
-      AequumAnalysis.drawSegmentInfo(ctx, state.placedLandmarks, state.viewType, state.scaleFactor, state.facingDirection, width);
-    }
-
     // Restore transform
     ctx.restore();
 
@@ -2671,8 +2666,62 @@
   }
 
   async function handleExportPDF() {
-    if (!state.currentSession || !state.currentClient) return;
+    if (!state.currentClient) return;
 
+    if (state.reportMode === 'patient') {
+      const printable = $('printable-report');
+      if (printable) {
+        // Convert radar chart canvas to image for printing
+        const radarCanvas = $('radar-chart-canvas');
+        let radarImgSrc = '';
+        if (radarCanvas) {
+          try {
+            radarImgSrc = radarCanvas.toDataURL();
+          } catch (e) {}
+        }
+
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          const clone = printable.cloneNode(true);
+          if (radarImgSrc) {
+            const cloneRadarCanvas = clone.querySelector('#radar-chart-canvas');
+            if (cloneRadarCanvas) {
+              const img = document.createElement('img');
+              img.src = radarImgSrc;
+              img.style.width = '100%';
+              img.style.height = '100%';
+              cloneRadarCanvas.parentNode.replaceChild(img, cloneRadarCanvas);
+            }
+          }
+          printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="UTF-8">
+              <title>姿勢分析レポート - ${escapeHtml(state.currentClient.name)}</title>
+              <link rel="preconnect" href="https://fonts.googleapis.com">
+              <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+              <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+              <style>
+                @page { size: A4 portrait; margin: 8mm; }
+                body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                .rpt-wrap { box-shadow: none !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; }
+              </style>
+            </head>
+            <body>
+              ${clone.outerHTML}
+            </body>
+            </html>
+          `);
+          printWindow.document.close();
+          setTimeout(() => printWindow.print(), 500);
+          showToast('印刷ダイアログが開きます');
+          return;
+        }
+      }
+    }
+
+    if (!state.currentSession) return;
     const deviations = state.currentSession.deviations || [];
     const html = AequumAnalysis.generateReportHTML(state.currentClient, state.currentSession, deviations);
 

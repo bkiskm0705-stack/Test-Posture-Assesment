@@ -206,20 +206,12 @@ return {
 
 ## 既知の問題
 
-> [!WARNING]
-> - `calculateCVA()` が参照する `c7_spinous`, `ear_tragus` ランドマークは現在のランドマーク定義に存在しない → 常に `null` を返す（Phase 2 用のスタブ）
-> - `generateCombinedReportHTML` 内で `AequumDB.getImage()` を直接呼び出し → 解析モジュールがデータ層に直接依存（設計上の懸念）
-> - レーダーチャート `drawRadarChart` の5軸データは総合レポート内でのみ使用、汎用性が低い
+> [!NOTE]
+> - `generateCombinedReportHTML` 内で `AequumDB.getImage()` を直接呼び出している箇所があり、解析モジュールからデータ層への直接依存が存在する（将来的に画像データを引数で渡す設計へのリファクタリングを検討）
 
 ## タスクリスト
 
-- [ ] ランドマーク定義の完全なドキュメント化
-- [ ] 偏差計算ロジックの符号規約の統一確認（前方=正 の一貫性）
-- [ ] `calculateScaleFactor` の 0.90 / 0.42 マジックナンバーの根拠文書化
-- [ ] CVA計算用のランドマーク(C7, 耳珠)の追加計画
-- [ ] `generateCombinedReportHTML` のDB依存を解消（画像データを引数で受け取る設計へ）
-- [ ] 描画ユーティリティのパフォーマンス最適化（requestAnimationFrame対応）
-- [ ] レポートHTML内のインラインCSSをテンプレート化
-- [ ] トレンドチャートのインタラクティブ化（タップでセッション詳細へ遷移）
-- [ ] レーダーチャートの軸カスタマイズ対応
-- [ ] ユニットテストの作成（calculateDeviations, calculateScaleFactor, calculateAngle）
+- [ ] 偏差計算ロジックの符号規約の統一確認（前方=正 の一貫性の担保）
+- [ ] `generateCombinedReportHTML` の引数設計整理（DB依存の解消）
+- [ ] トレンドチャートの表示改善（タップでセッション詳細へ遷移）
+- [ ] 主要計算ロジック（`calculateDeviations`, `calculateScaleFactor`, `calculateAngle`）の単体テスト作成
