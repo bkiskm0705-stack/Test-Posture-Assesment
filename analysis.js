@@ -1078,6 +1078,19 @@ const AequumAnalysis = (() => {
         const radius = 6 * refScale;
         const landmarkLineWidth = Math.max(2, refScale * 1.6);
 
+        // 3.5. Draw plumb line (teal vertical guide line through reference point)
+        const plumbX = getPlumbLineX(mappedLandmarks, viewType);
+        if (plumbX !== null && plumbX !== undefined) {
+          ctx.save();
+          ctx.strokeStyle = '#00A88D';
+          ctx.lineWidth = 2.2 * refScale;
+          ctx.beginPath();
+          ctx.moveTo(plumbX, 0);
+          ctx.lineTo(plumbX, height);
+          ctx.stroke();
+          ctx.restore();
+        }
+
         // 4. Draw skeleton connections (white clean lines connecting landmarks)
         if (mappedLandmarks.length >= 2) {
           ctx.save();
@@ -1101,6 +1114,27 @@ const AequumAnalysis = (() => {
           });
         });
 
+        // 6. Draw orientation indicators at the bottom (右/左 for posterior, 後/前 for sagittal)
+        ctx.save();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.font = `bold ${Math.round(20 * refScale)}px sans-serif`;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+        ctx.shadowBlur = 4 * refScale;
+        const padX = 14 * refScale;
+        const padY = height - 16 * refScale;
+        if (viewType === 'posterior') {
+          ctx.textAlign = 'left';
+          ctx.fillText('右', padX, padY);
+          ctx.textAlign = 'right';
+          ctx.fillText('左', width - padX, padY);
+        } else {
+          ctx.textAlign = 'left';
+          ctx.fillText('後', padX, padY);
+          ctx.textAlign = 'right';
+          ctx.fillText('前', width - padX, padY);
+        }
+        ctx.restore();
+
         resolve(canvas.toDataURL('image/jpeg', 0.92));
       };
 
@@ -1120,30 +1154,133 @@ const AequumAnalysis = (() => {
     const pDevs = posteriorSession ? (posteriorSession.deviations || []) : [];
     const sLandmarks = sagittalSession ? (sagittalSession.landmarks || []) : [];
     const pLandmarks = posteriorSession ? (posteriorSession.landmarks || []) : [];
-    
-    // Knee Angles
-    const kneeAngles = getKneeAngles(pLandmarks, 'posterior');
-    const kneeAngleRight = kneeAngles.right || '-';
-    const kneeAngleLeft = kneeAngles.left || '-';
+    const sScaleFactor = sagittalSession ? (sagittalSession.scaleFactor || null) : null;
+    const pScaleFactor = posteriorSession ? (posteriorSession.scaleFactor || null) : null;
 
-    // Tilt
+    // ── Per-segment score helpers (Reference Image Spec) ──
+    // 傾きスコア (10点満点): 0°=10, 1°=9, 2°=7, 3°=6
+    const calcTiltScore = (tiltDeg) => {
+      if (tiltDeg === null || tiltDeg === undefined || isNaN(tiltDeg)) return null;
+      const abs = Math.abs(tiltDeg);
+      return Math.max(1, Math.min(10, Math.round(10 - abs * 1.33)));
+    };
+
+    // ズレスコア (10点満点): ズレ%から算出 (0~3%=10, 4~10%=9, 11~17%=8, 18~24%=7, 25~31%=6, 32~38%=5)
+    const calcDevPercentScore = (percent) => {
+      if (percent === null || percent === undefined || isNaN(percent)) return null;
+      return Math.max(1, Math.min(10, 10 - Math.round(percent / 7)));
+    };
+
+    // ズレcmをズレ% (0~99%) に変換 (例: 1.2cm -> 12%, 3.3cm -> 33%)
+    const toPercent = (devCm) => {
+      if (devCm === null || devCm === undefined || isNaN(devCm)) return null;
+      return Math.min(99, Math.round(Math.abs(devCm) * 10));
+    };
+
+    // 表示フォーマットヘルパー
+    const formatPercent = (pct) => (pct !== null && pct !== undefined ? `${pct}%` : '-');
+    const formatDeg = (deg) => (deg !== null && deg !== undefined ? `${deg}°` : '-');
+
+    // スコアサークル色: 10点(正常)=青緑, 9点以下=コーラルピンク
+    const scoreColor = (s) => {
+      if (s === null || s === undefined) return '#ccc';
+      if (s >= 10) return '#00A88D';
+      return '#E06D75';
+    };
+
+    // スコアサークルHTML生成
+    const scoreCircle = (s) => {
+      if (s === null || s === undefined) {
+        return `<div class="scr-circle" style="background:#ccc;">-</div>`;
+      }
+      return `<div class="scr-circle" style="background:${scoreColor(s)};">${s}</div>`;
+    };
+
+    // ── Posterior (正面/背面) segment data ──
+    const earL = pLandmarks.find(l => l.id === 'earlobe_left');
+    const earR = pLandmarks.find(l => l.id === 'earlobe_right');
+    const headTilt = calculateTilt(earL, earR);
+
     const shoulderL = pLandmarks.find(l => l.id === 'acromion_left');
     const shoulderR = pLandmarks.find(l => l.id === 'acromion_right');
-    const shoulderTilt = calculateTilt(shoulderL, shoulderR) || 0;
+    const shoulderTilt = calculateTilt(shoulderL, shoulderR);
 
     const pelvisL = pLandmarks.find(l => l.id === 'psis_left');
     const pelvisR = pLandmarks.find(l => l.id === 'psis_right');
-    const pelvisTilt = calculateTilt(pelvisL, pelvisR) || 0;
+    const pelvisTilt = calculateTilt(pelvisL, pelvisR);
 
-    const devPercent = (val) => Math.min(100, Math.round((val || 0) * 10));
+    // Posterior deviation: midpoint of pair vs plumb line
+    const pPlumbX = getPlumbLineX(pLandmarks, 'posterior');
+    const posteriorSegDevCm = (left, right) => {
+      if (!left || !right || pPlumbX === null || !pScaleFactor) return null;
+      const midX = (left.x + right.x) / 2;
+      return Math.round(Math.abs(midX - pPlumbX) * pScaleFactor * 10) / 10;
+    };
 
-    // Calc overall score
-    const totalDevs = [...sDevs, ...pDevs];
-    totalDevs.forEach(d => {
-      if (d.status === 'alert') score -= 4;
-      else if (d.status === 'warn') score -= 2;
-    });
-    score = Math.max(50, score);
+    const pHeadDevCm = posteriorSegDevCm(earL, earR);
+    const pShoulderDevCm = posteriorSegDevCm(shoulderL, shoulderR);
+    const pPelvisDevCm = posteriorSegDevCm(pelvisL, pelvisR);
+
+    const pHeadDevPct = toPercent(pHeadDevCm);
+    const pShoulderDevPct = toPercent(pShoulderDevCm);
+    const pPelvisDevPct = toPercent(pPelvisDevCm);
+
+    // 正面 6項目スコア
+    const pHeadTiltScore = calcTiltScore(headTilt);
+    const pHeadDevScore = calcDevPercentScore(pHeadDevPct);
+    const pShoulderTiltScore = calcTiltScore(shoulderTilt);
+    const pShoulderDevScore = calcDevPercentScore(pShoulderDevPct);
+    const pPelvisTiltScore = calcTiltScore(pelvisTilt);
+    const pPelvisDevScore = calcDevPercentScore(pPelvisDevPct);
+
+    // ── Sagittal (右側面) segment data ──
+    const sagDevCm = (landmarkId) => {
+      const d = sDevs.find(x => x.landmarkId === landmarkId);
+      return d && d.deviationCm !== null ? Math.abs(d.deviationCm) : null;
+    };
+
+    const sHeadDevCm = sagDevCm('earlobe');
+    const sShoulderDevCm = sagDevCm('acromion');
+    const sPelvisDevCm = sagDevCm('greater_trochanter');
+    const sKneeDevCm = sagDevCm('knee_forward') !== null ? sagDevCm('knee_forward') : sagDevCm('knee');
+
+    const sHeadDevPct = toPercent(sHeadDevCm);
+    const sShoulderDevPct = toPercent(sShoulderDevCm);
+    const sPelvisDevPct = toPercent(sPelvisDevCm);
+    const sKneeDevPct = toPercent(sKneeDevCm);
+
+    // 側面 4項目スコア
+    const sHeadDevScore = calcDevPercentScore(sHeadDevPct);
+    const sShoulderDevScore = calcDevPercentScore(sShoulderDevPct);
+    const sPelvisDevScore = calcDevPercentScore(sPelvisDevPct);
+    const sKneeDevScore = calcDevPercentScore(sKneeDevPct);
+
+    // ── 総合姿勢スコア (全10項目の平均×10 = 100点満点) ──
+    const allScores = [
+      pHeadTiltScore, pHeadDevScore,
+      pShoulderTiltScore, pShoulderDevScore,
+      pPelvisTiltScore, pPelvisDevScore,
+      sHeadDevScore, sShoulderDevScore, sPelvisDevScore, sKneeDevScore
+    ].filter(s => s !== null && s !== undefined);
+
+    if (allScores.length > 0) {
+      score = Math.round((allScores.reduce((a, b) => a + b, 0) / allScores.length) * 10);
+    } else {
+      score = 78;
+    }
+
+    // ── 身体重心オフセット (足裏十字線に対する位置) ──
+    let cgOffsetX = 0;
+    let cgOffsetY = 0;
+    if (sPelvisDevCm !== null || sShoulderDevCm !== null) {
+      const rawSagDev = sDevs.find(d => d.landmarkId === 'greater_trochanter' || d.landmarkId === 'acromion')?.deviationCm || 0;
+      cgOffsetY = -Math.max(-14, Math.min(14, rawSagDev * 2.5));
+    }
+    if (pelvisTilt !== null) {
+      cgOffsetX = Math.max(-12, Math.min(12, pelvisTilt * 1.8));
+    }
+    const cgX = 60 + cgOffsetX;
+    const cgY = 37 + cgOffsetY;
 
     let tendencyTitle = '良好な姿勢バランスです';
     let tendencyDesc = '全体的に負担の少ない良い姿勢を保てています。';
@@ -1157,6 +1294,7 @@ const AequumAnalysis = (() => {
       tendencyTitle = 'アライメントの乱れが見られます';
       tendencyDesc = '各部位のズレが蓄積しています。身体のバランスを整えるケアをおすすめします。';
     }
+
 
     let sagHtml = '<div class="empty-img">側面データなし</div>';
     if (sagittalSession && sagittalSession.imageId) {
@@ -1197,20 +1335,34 @@ const AequumAnalysis = (() => {
         .rpt-score-large { border-radius: 4px; padding: 8px 16px; text-align: center; }
         .rpt-score-large .num { font-size: 36px; font-weight: bold; line-height: 1; margin-right: 4px; }
         
-        .rpt-body { display: flex; gap: 24px; margin-bottom: 24px; }
-        .rpt-left { flex: 0 0 380px; }
-        .rpt-images { display: flex; gap: 8px; height: 320px; margin-bottom: 16px; }
+        .rpt-body { display: flex; gap: 20px; margin-bottom: 24px; }
+        .rpt-left { flex: 0 0 410px; }
+        .rpt-images-container { margin-bottom: 12px; }
+        .rpt-images { display: flex; gap: 8px; height: 320px; }
         .rpt-img-wrap { flex: 1; background: #1e222d; border-radius: 4px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; }
         .report-img { width: 100%; height: 100%; object-fit: contain; }
         .empty-img { width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#aaa; font-size:12px; }
+        .rpt-img-labels { display: flex; gap: 8px; margin-top: 6px; }
+        .rpt-img-lbl { flex: 1; text-align: center; color: #00A88D; font-weight: bold; font-size: 13px; }
+
+        /* スコアグリッド (参考画像準拠) */
+        .rpt-score-grid { display: flex; gap: 14px; margin-top: 6px; }
+        .rpt-grid-col { flex: 1; position: relative; display: flex; flex-direction: column; gap: 8px; }
+        .rpt-col-header { text-align: center; font-size: 10px; color: #999; font-weight: bold; height: 16px; margin-left: 28px; }
+        .rpt-col-guide-line { position: absolute; top: 16px; bottom: 4px; left: calc(26px + (100% - 26px) * 0.58); width: 2px; background: #00A88D; z-index: 1; }
         
-        .rpt-score-rows { display: flex; flex-direction: column; gap: 8px; }
-        .scr-row { display: flex; align-items: center; gap: 12px; font-size: 11px; }
-        .scr-label { width: 24px; text-align: center; border: 1px solid #ddd; padding: 4px 0; font-weight:bold; }
-        .scr-metrics { font-size: 9px; color: #666; width: 40px; }
-        .scr-circle { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px; background: #00A88D; }
-        .scr-circle.bad { background: #E57373; }
-        .scr-line { flex: 1; height: 1px; background: #ddd; position: relative; }
+        .rpt-card-row { display: flex; align-items: stretch; gap: 6px; position: relative; z-index: 2; }
+        .rpt-card-row.single-line { min-height: 28px; }
+        .rpt-card-row.cog-row { min-height: 72px; }
+        .rpt-part-box { width: 24px; min-width: 24px; border: 1.5px solid #222; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; background: #fff; writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 2px; box-sizing: border-box; }
+        .rpt-metrics-stack { flex: 1; display: flex; flex-direction: column; justify-content: space-around; gap: 4px; }
+        .rpt-metric-line { display: flex; align-items: center; gap: 4px; height: 26px; }
+        .rpt-metric-text { width: 34px; min-width: 34px; font-size: 9px; line-height: 1.1; color: #333; text-align: left; }
+        .rpt-metric-text .val { font-size: 9px; font-weight: bold; color: #111; }
+        .rpt-metric-bar { flex: 1; height: 2px; background: #cbd5d6; position: relative; display: flex; align-items: center; }
+        .rpt-circle-slot { position: absolute; left: 58%; transform: translateX(-50%); z-index: 3; }
+        .scr-circle { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px; box-shadow: 0 1px 2px rgba(0,0,0,0.18); }
+        .rpt-cog-visual { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; background: #fff; }
         
         .rpt-right { flex: 1; }
         .rpt-banner { background: #00A88D; color: white; font-weight: bold; font-size: 22px; text-align: center; padding: 12px; border-radius: 4px; margin-bottom: 16px; }
@@ -1305,37 +1457,175 @@ const AequumAnalysis = (() => {
         <!-- Body -->
         <div class="rpt-body">
           <div class="rpt-left">
-            <div class="rpt-images">
-              <div class="rpt-img-wrap">${posHtml}</div>
-              <div class="rpt-img-wrap">${sagHtml}</div>
+            <div class="rpt-images-container">
+              <div class="rpt-images">
+                <div class="rpt-img-wrap">${posHtml}</div>
+                <div class="rpt-img-wrap">${sagHtml}</div>
+              </div>
+              <div class="rpt-img-labels">
+                <div class="rpt-img-lbl">正面</div>
+                <div class="rpt-img-lbl">右側面</div>
+              </div>
             </div>
-            <div class="rpt-score-rows">
-              <div class="scr-row">
-                <div class="scr-label">頭</div>
-                <div class="scr-metrics">傾き ${shoulderTilt}°<br>ズレ ${devPercent(sDevs.find(d=>d.landmarkId.includes('tragus'))?.deviationCm)}%</div>
-                <div class="scr-circle">10</div>
-                <div class="scr-line"></div>
-                <div class="scr-label" style="border:none;">頭</div>
-                <div class="scr-metrics">ズレ 0%</div>
-                <div class="scr-circle bad">8</div>
+
+            <div class="rpt-score-grid">
+              <!-- 左カラム: 正面 -->
+              <div class="rpt-grid-col">
+                <div class="rpt-col-guide-line"></div>
+                <div class="rpt-col-header">正常</div>
+
+                <!-- 頭 -->
+                <div class="rpt-card-row">
+                  <div class="rpt-part-box">頭</div>
+                  <div class="rpt-metrics-stack">
+                    <div class="rpt-metric-line">
+                      <div class="rpt-metric-text">傾き<br><span class="val">${formatDeg(headTilt)}</span></div>
+                      <div class="rpt-metric-bar">
+                        <div class="rpt-circle-slot">${scoreCircle(pHeadTiltScore)}</div>
+                      </div>
+                    </div>
+                    <div class="rpt-metric-line">
+                      <div class="rpt-metric-text">ズレ<br><span class="val">${formatPercent(pHeadDevPct)}</span></div>
+                      <div class="rpt-metric-bar">
+                        <div class="rpt-circle-slot">${scoreCircle(pHeadDevScore)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 肩 -->
+                <div class="rpt-card-row">
+                  <div class="rpt-part-box">肩</div>
+                  <div class="rpt-metrics-stack">
+                    <div class="rpt-metric-line">
+                      <div class="rpt-metric-text">傾き<br><span class="val">${formatDeg(shoulderTilt)}</span></div>
+                      <div class="rpt-metric-bar">
+                        <div class="rpt-circle-slot">${scoreCircle(pShoulderTiltScore)}</div>
+                      </div>
+                    </div>
+                    <div class="rpt-metric-line">
+                      <div class="rpt-metric-text">ズレ<br><span class="val">${formatPercent(pShoulderDevPct)}</span></div>
+                      <div class="rpt-metric-bar">
+                        <div class="rpt-circle-slot">${scoreCircle(pShoulderDevScore)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 腰 -->
+                <div class="rpt-card-row">
+                  <div class="rpt-part-box">腰</div>
+                  <div class="rpt-metrics-stack">
+                    <div class="rpt-metric-line">
+                      <div class="rpt-metric-text">傾き<br><span class="val">${formatDeg(pelvisTilt)}</span></div>
+                      <div class="rpt-metric-bar">
+                        <div class="rpt-circle-slot">${scoreCircle(pPelvisTiltScore)}</div>
+                      </div>
+                    </div>
+                    <div class="rpt-metric-line">
+                      <div class="rpt-metric-text">ズレ<br><span class="val">${formatPercent(pPelvisDevPct)}</span></div>
+                      <div class="rpt-metric-bar">
+                        <div class="rpt-circle-slot">${scoreCircle(pPelvisDevScore)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="scr-row">
-                <div class="scr-label">肩</div>
-                <div class="scr-metrics">傾き ${shoulderTilt}°<br>ズレ 0%</div>
-                <div class="scr-circle">10</div>
-                <div class="scr-line"></div>
-                <div class="scr-label" style="border:none;">肩</div>
-                <div class="scr-metrics">ズレ 0%</div>
-                <div class="scr-circle bad">8</div>
-              </div>
-              <div class="scr-row">
-                <div class="scr-label">腰</div>
-                <div class="scr-metrics">傾き ${pelvisTilt}°<br>ズレ 0%</div>
-                <div class="scr-circle">10</div>
-                <div class="scr-line"></div>
-                <div class="scr-label" style="border:none;">腰</div>
-                <div class="scr-metrics">ズレ 0%</div>
-                <div class="scr-circle bad">6</div>
+
+              <!-- 右カラム: 右側面 -->
+              <div class="rpt-grid-col">
+                <div class="rpt-col-guide-line"></div>
+                <div class="rpt-col-header">正常</div>
+
+                <!-- 頭 -->
+                <div class="rpt-card-row single-line">
+                  <div class="rpt-part-box">頭</div>
+                  <div class="rpt-metrics-stack">
+                    <div class="rpt-metric-line">
+                      <div class="rpt-metric-text">ズレ<br><span class="val">${formatPercent(sHeadDevPct)}</span></div>
+                      <div class="rpt-metric-bar">
+                        <div class="rpt-circle-slot">${scoreCircle(sHeadDevScore)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 肩 -->
+                <div class="rpt-card-row single-line">
+                  <div class="rpt-part-box">肩</div>
+                  <div class="rpt-metrics-stack">
+                    <div class="rpt-metric-line">
+                      <div class="rpt-metric-text">ズレ<br><span class="val">${formatPercent(sShoulderDevPct)}</span></div>
+                      <div class="rpt-metric-bar">
+                        <div class="rpt-circle-slot">${scoreCircle(sShoulderDevScore)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 腰 -->
+                <div class="rpt-card-row single-line">
+                  <div class="rpt-part-box">腰</div>
+                  <div class="rpt-metrics-stack">
+                    <div class="rpt-metric-line">
+                      <div class="rpt-metric-text">ズレ<br><span class="val">${formatPercent(sPelvisDevPct)}</span></div>
+                      <div class="rpt-metric-bar">
+                        <div class="rpt-circle-slot">${scoreCircle(sPelvisDevScore)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 膝 -->
+                <div class="rpt-card-row single-line">
+                  <div class="rpt-part-box">膝</div>
+                  <div class="rpt-metrics-stack">
+                    <div class="rpt-metric-line">
+                      <div class="rpt-metric-text">ズレ<br><span class="val">${formatPercent(sKneeDevPct)}</span></div>
+                      <div class="rpt-metric-bar">
+                        <div class="rpt-circle-slot">${scoreCircle(sKneeDevScore)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 身体重心 -->
+                <div class="rpt-card-row cog-row">
+                  <div class="rpt-part-box" style="font-size:10px; letter-spacing:0; line-height:1.2; padding:3px 1px;">身体重心</div>
+                  <div class="rpt-cog-visual">
+                    <svg width="120" height="72" viewBox="0 0 120 72" style="overflow:visible;">
+                      <!-- 十字線 (青緑) -->
+                      <line x1="12" y1="36" x2="108" y2="36" stroke="#00A88D" stroke-width="1.8" />
+                      <line x1="60" y1="4" x2="60" y2="68" stroke="#00A88D" stroke-width="1.8" />
+                      
+                      <!-- 左足裏シルエット -->
+                      <g fill="#9aa0a6" transform="translate(38, 36) scale(0.38) translate(-28, -50)">
+                        <ellipse cx="28" cy="62" rx="14" ry="24" />
+                        <ellipse cx="28" cy="30" rx="16" ry="18" />
+                        <circle cx="16" cy="6" r="4.5" />
+                        <circle cx="23" cy="4" r="4.0" />
+                        <circle cx="30" cy="5" r="3.6" />
+                        <circle cx="36" cy="8" r="3.2" />
+                        <circle cx="41" cy="12" r="2.8" />
+                      </g>
+
+                      <!-- 右足裏シルエット -->
+                      <g fill="#9aa0a6" transform="translate(82, 36) scale(0.38) translate(-28, -50)">
+                        <ellipse cx="28" cy="62" rx="14" ry="24" />
+                        <ellipse cx="28" cy="30" rx="16" ry="18" />
+                        <circle cx="40" cy="6" r="4.5" />
+                        <circle cx="33" cy="4" r="4.0" />
+                        <circle cx="26" cy="5" r="3.6" />
+                        <circle cx="20" cy="8" r="3.2" />
+                        <circle cx="15" cy="12" r="2.8" />
+                      </g>
+
+                      <!-- 重心プロット (赤丸) -->
+                      <circle cx="${cgX}" cy="${cgY}" r="4.5" fill="#E06D75" stroke="#fff" stroke-width="1.5" />
+                    </svg>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
@@ -1410,11 +1700,11 @@ const AequumAnalysis = (() => {
     };
 
     const scores = {
-      head: calcScore(['earrobe', 'ear'], [...sDevs, ...pDevs]),
+      head: calcScore(['earlobe', 'ear'], [...sDevs, ...pDevs]),
       shoulder: calcScore(['acromion'], [...sDevs, ...pDevs]),
-      back: calcScore(['c7', 'psis'], [...sDevs, ...pDevs]),
-      pelvis: calcScore(['greater_trochanter', 'psis'], [...sDevs, ...pDevs]),
-      knee: calcScore(['knee', 'popliteal'], [...sDevs, ...pDevs])
+      back: calcScore(['psis'], [...sDevs, ...pDevs]),
+      pelvis: calcScore(['greater_trochanter'], [...sDevs, ...pDevs]),
+      knee: calcScore(['knee_forward', 'popliteal'], [...sDevs, ...pDevs])
     };
 
     canvas.width = 240;
